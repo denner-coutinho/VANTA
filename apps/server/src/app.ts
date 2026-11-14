@@ -16,6 +16,7 @@ import { authRoutes } from "./modules/auth/auth.routes.js";
 import { LogMailer, SmtpMailer, type Mailer } from "./modules/mail/mailer.js";
 import { meRoutes } from "./modules/users/me.routes.js";
 import { contentRoutes } from "./modules/content/content.routes.js";
+import { rankedRoutes } from "./modules/ranked/ranked.routes.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
 
 declare module "fastify" {
@@ -98,6 +99,7 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   await app.register(authRoutes);
   await app.register(meRoutes);
   await app.register(contentRoutes);
+  await app.register(rankedRoutes);
 
   return app;
 }

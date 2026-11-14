@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { MAP_REGISTRY, MODES, weaponStatsFromRow, type MatchInfo, type PlayerMatchStats, type WeaponStats } from "@vanta/shared";
+import { MAP_REGISTRY, MODES, RANKS, weaponStatsFromRow, type MatchInfo, type PlayerMatchStats, type RankedResultWire, type WeaponStats } from "@vanta/shared";
 import { api } from "../api/client";
 import { gameSocket, type SocketStatus } from "../net/GameSocket";
 import { OnlineRuntime, TEAM_COLORS, type OnlineEvent, type OnlineHud } from "../game/OnlineRuntime";
 import type { GameSettings } from "../game/GameRuntime";
 import { loadSettings, saveSettings, type LocalSettings } from "./SettingsPanel";
 import { Button } from "../components/ui";
+import { RankEmblem } from "../components/RankEmblem";
+import { useAuth } from "../auth/AuthContext";
 import { uiSound } from "../audio/ui-sound";
 
 const CATEGORY_LABEL: Record<WeaponStats["category"], string> = { ASSAULT_RIFLE: "Rifle de assalto", SMG: "Submetralhadora", SNIPER: "Sniper", SHOTGUN: "Escopeta", PISTOL: "Pistola" };
@@ -17,6 +19,8 @@ interface Banner { id: number; title: string; sub: string; tone: "win" | "loss" 
 
 export function MatchScreen() {
   const navigate = useNavigate();
+  const { reloadMe } = useAuth();
+  const [rankedRes, setRankedRes] = useState<RankedResultWire | null>(gameSocket.rankedResult);
   const host = useRef<HTMLDivElement>(null);
   const rt = useRef<OnlineRuntime | null>(null);
   const [info, setInfo] = useState<MatchInfo | null>(gameSocket.match);
@@ -57,6 +61,9 @@ export function MatchScreen() {
         navigate("/jogar", { replace: true });
       } else if (m.t === "left_match") {
         navigate("/menu", { replace: true });
+      } else if (m.t === "ranked_result") {
+        setRankedRes(m);
+        void reloadMe().catch(() => undefined);
       } else if (m.t === "pong") {
         if (rt.current) rt.current.rtt = gameSocket.rtt;
       }
@@ -71,7 +78,7 @@ export function MatchScreen() {
       offS();
       clearTimeout(t);
     };
-  }, [navigate]);
+  }, [navigate, reloadMe]);
 
   const pushBanner = (b: Omit<Banner, "id">, ms = 3200) => {
     const id = Date.now();
@@ -290,10 +297,17 @@ export function MatchScreen() {
             <div className="scoreboard panel cut" data-testid="scoreboard">
               {result && (
                 <div className={`result-head ${result.winner === myTeam ? "win" : result.winner === null ? "" : "loss"}`}>
-                  <span className="label">{MODES[info.mode].label} · {MAP_REGISTRY[info.map]?.name ?? info.map}{result.reason === "forfeit" ? " · W.O." : ""}</span>
+                  <span className="label">{info.ranked ? "Ranqueada · " : ""}{MODES[info.mode].label} · {MAP_REGISTRY[info.map]?.name ?? info.map}{result.reason === "forfeit" ? " · W.O." : ""}</span>
                   <h1 data-testid="match-result">{result.winner === null ? "Empate" : result.winner === myTeam ? "Vitória" : "Derrota"}</h1>
                   <strong>{result.score[myTeam]} × {result.score[enemyTeam]}</strong>
                 </div>
+              )}
+              {result && info.ranked && (
+                rankedRes && rankedRes.matchId === info.matchId ? (
+                  <RankedResultCard r={rankedRes} />
+                ) : (
+                  <div className="ranked-result pending" data-testid="ranked-pending"><span className="muted">Gravando o resultado ranqueado no servidor…</span></div>
+                )
               )}
               {([myTeam, enemyTeam] as const).map((team) => (
                 <table key={team} className="sb-table">
@@ -355,6 +369,32 @@ export function MatchScreen() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Ganho ou perda de pontos de patente, exatamente como o servidor gravou. */
+function RankedResultCard({ r }: { r: RankedResultWire }) {
+  const rank = r.rankAfter ? RANKS[r.rankAfter - 1]! : null;
+  const sign = r.delta > 0 ? "+" : "";
+  return (
+    <div className={`ranked-result ${r.delta > 0 ? "up" : r.delta < 0 ? "down" : ""}`} data-testid="ranked-result">
+      {rank ? <RankEmblem order={rank.order} size={52} /> : <div className="placement-badge">?</div>}
+      <div className="rr-main">
+        {rank ? (
+          <strong style={{ color: rank.color }}>{rank.name}</strong>
+        ) : (
+          <strong>Em classificação</strong>
+        )}
+        <span className="muted">
+          {r.placed ? "Classificação concluída. " : ""}
+          {r.promoted && !r.placed ? "Promoção de patente. " : ""}
+          {r.demoted ? "Queda de patente. " : ""}
+          {rank ? `${r.pointsAfter} PP` : `Faltam ${r.placementLeft} partidas para revelar sua patente`}
+          {r.winStreak >= 3 ? ` · sequência de ${r.winStreak} vitórias` : ""}
+        </span>
+      </div>
+      {rank && !r.placed && <b className="rr-delta" data-testid="ranked-delta">{sign}{r.delta} PP</b>}
     </div>
   );
 }

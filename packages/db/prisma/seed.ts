@@ -36,12 +36,16 @@ async function main() {
     await prisma.achievement.upsert({ where: { code: a.code }, update: {}, create: a });
   }
 
-  // Temporada 1: criada inativa. Ativação e datas definitivas são feitas pelo painel admin no lançamento.
+  // Temporada 1. Em produção ela nasce inativa e um administrador a inicia no lançamento
+  // (POST /admin/ranked/seasons/start). Fora de produção já começa ativa, para o ranqueado funcionar no dev.
+  const dev = process.env.NODE_ENV !== "production";
+  const startsAt = new Date();
+  const endsAt = new Date(startsAt.getTime() + 90 * 24 * 3600 * 1000);
   const existing = await prisma.rankedSeason.findUnique({ where: { number: 1 } });
   if (!existing) {
-    const startsAt = new Date();
-    const endsAt = new Date(startsAt.getTime() + 90 * 24 * 3600 * 1000);
-    await prisma.rankedSeason.create({ data: { number: 1, name: "Temporada 1 — Ignição", startsAt, endsAt, isActive: false } });
+    await prisma.rankedSeason.create({ data: { number: 1, name: "Temporada 1 — Ignição", startsAt, endsAt, isActive: dev } });
+  } else if (dev && !existing.isActive && !existing.closedAt && !(await prisma.rankedSeason.findFirst({ where: { isActive: true } }))) {
+    await prisma.rankedSeason.update({ where: { id: existing.id }, data: { isActive: true, startsAt, endsAt } });
   }
 
   const counts = {

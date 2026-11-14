@@ -48,3 +48,57 @@ export interface ActiveEvent {
   startsAt: string;
   endsAt: string;
 }
+
+// ───────── Competitivo ─────────
+export interface RankedModeStatus {
+  mode: "1v1" | "2v2" | "3v3";
+  points: number;
+  /** Ordem da patente (1..15). `null` enquanto a classificação não termina. */
+  rankOrder: number | null;
+  placementLeft: number;
+  wins: number;
+  losses: number;
+  winStreak: number;
+  peakPoints: number;
+}
+
+export interface RankedOverviewResponse {
+  season: { id: string; number: number; name: string; startsAt: string; endsAt: string; placementMatches: number } | null;
+  /** Segundos de bloqueio da fila ranqueada por abandono (0 = liberada). */
+  cooldownSeconds: number;
+  modes: RankedModeStatus[];
+  recent: Array<{
+    matchId: string;
+    mode: "1v1" | "2v2" | "3v3";
+    map: string;
+    result: "WIN" | "LOSS" | "DRAW" | "ABANDONED";
+    pointsDelta: number | null;
+    /** [sua equipe, adversários] */
+    score: number[];
+    kills: number;
+    deaths: number;
+    assists: number;
+    mvp: boolean;
+    endedAt: string | null;
+  }>;
+}
+
+export interface RankedLeaderboardEntry {
+  position: number;
+  userId: string;
+  username: string;
+  level: number;
+  points: number;
+  rankOrder: number;
+  wins: number;
+  losses: number;
+  winStreak: number;
+}
+
+export interface RankedLeaderboardResponse {
+  season: string | null;
+  mode: "1v1" | "2v2" | "3v3";
+  total: number;
+  entries: RankedLeaderboardEntry[];
+  me: { position: number; points: number; rankOrder: number } | null;
+}

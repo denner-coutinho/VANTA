@@ -9,7 +9,9 @@ import {
   MAP_ROTATION,
   MODES,
   SERVER_TICK_RATE,
+  balanceTeams,
   clientMessageSchema,
+  pickMatchGroup,
   decodeCommand,
   weaponStatsFromRow,
   type QueueMode,
@@ -17,6 +19,7 @@ import {
   type WeaponStats,
 } from "@vanta/shared";
 import { Match, type MatchResult, type MatchSeat } from "./match.js";
+import { applyRankedMatch, getActiveSeason, getOrCreateRating, rankedCooldownSeconds } from "./ranked.js";
 
 export interface GameServerOptions {
   prisma: PrismaClient;
@@ -40,7 +43,8 @@ interface Client {
   characterId: string | null;
   character: string;
   match: Match | null;
-  queuedMode: QueueMode | null;
+  /** Fila em que está: modo + tipo (casual/ranqueada). */
+  queued: { mode: QueueMode; ranked: boolean } | null;
   msgWindowStart: number;
   msgCount: number;
   helloTimer: NodeJS.Timeout | null;
@@ -50,7 +54,11 @@ interface QueueEntry {
   client: Client;
   loadout: WeaponStats[];
   since: number;
+  /** MMR oculto na temporada (só nas filas ranqueadas). */
+  mmr: number;
 }
+
+const queueKey = (mode: QueueMode, ranked: boolean) => `${mode}:${ranked ? "ranked" : "casual"}`;
 
 const MAX_MSGS_PER_SEC = 150;
 const HELLO_TIMEOUT_MS = 5000;
@@ -64,7 +72,8 @@ export class GameServer {
   private wss: WebSocketServer;
   private verify: (token: string) => Record<string, unknown>;
   private clients = new Map<string, Client>();
-  private queues: Record<QueueMode, QueueEntry[]> = { "1v1": [], "2v2": [], "3v3": [] };
+  private queues = new Map<string, QueueEntry[]>();
+  private mmTimer: NodeJS.Timeout | null = null;
   readonly matches = new Map<string, Match>();
   private weapons = new Map<string, WeaponStats>();
   private timer: NodeJS.Timeout | null = null;
@@ -104,7 +113,11 @@ export class GameServer {
   async start(port: number, host = "0.0.0.0"): Promise<number> {
     await this.loadWeapons();
     await new Promise<void>((resolve) => this.http.listen(port, host, resolve));
-    if (this.opts.autoTick !== false) this.startLoop();
+    if (this.opts.autoTick !== false) {
+      this.startLoop();
+      // As janelas de MMR das filas ranqueadas abrem com o tempo: reavalia a cada segundo.
+      this.mmTimer = setInterval(() => this.matchmakingTick(), 1000);
+    }
     this.recheckTimer = setInterval(() => void this.recheckAccounts(), this.opts.recheckMs ?? 30_000);
     const addr = this.http.address();
     return typeof addr === "object" && addr ? addr.port : port;
@@ -140,6 +153,7 @@ export class GameServer {
 
   async stop() {
     if (this.timer) clearTimeout(this.timer);
+    if (this.mmTimer) clearInterval(this.mmTimer);
     if (this.recheckTimer) clearInterval(this.recheckTimer);
     for (const c of this.clients.values()) c.ws.close(1001, "shutdown");
     for (const ws of this.wss.clients) ws.terminate();
@@ -153,7 +167,7 @@ export class GameServer {
   }
 
   private onConnection(ws: WebSocket) {
-    const client: Client = { ws, userId: null, username: "", tokenVersion: 0, color: "#287BFF", characterId: null, character: "RAVEN", match: null, queuedMode: null, msgWindowStart: Date.now(), msgCount: 0, helloTimer: null };
+    const client: Client = { ws, userId: null, username: "", tokenVersion: 0, color: "#287BFF", characterId: null, character: "RAVEN", match: null, queued: null, msgWindowStart: Date.now(), msgCount: 0, helloTimer: null };
     client.helloTimer = setTimeout(() => ws.close(4001, "hello timeout"), HELLO_TIMEOUT_MS);
     ws.on("message", (data, isBinary) => {
       if (isBinary) return ws.close(4002, "binary not supported");
@@ -191,7 +205,7 @@ export class GameServer {
         this.send(c, { t: "pong", n: msg.n, tick: c.match?.tick ?? 0 });
         return;
       case "queue":
-        return this.enqueue(c, msg.mode, msg.loadout);
+        return this.enqueue(c, msg.mode, msg.loadout, msg.ranked === true);
       case "cancel_queue":
         this.dequeue(c);
         this.send(c, { t: "queue", state: "idle" });
@@ -276,7 +290,14 @@ export class GameServer {
     }
   }
 
-  private enqueue(c: Client, mode: QueueMode, codes: string[]) {
+  private queueOf(mode: QueueMode, ranked: boolean) {
+    const key = queueKey(mode, ranked);
+    let q = this.queues.get(key);
+    if (!q) this.queues.set(key, (q = []));
+    return q;
+  }
+
+  private async enqueue(c: Client, mode: QueueMode, codes: string[], ranked: boolean) {
     if (c.match && !c.match.isEnded) {
       this.send(c, { t: "error", code: "IN_MATCH", message: "Você já está em uma partida." });
       return;
@@ -287,35 +308,70 @@ export class GameServer {
       this.send(c, { t: "error", code: "BAD_LOADOUT", message: "Arsenal inválido." });
       return;
     }
+    let mmr = 0;
+    if (ranked) {
+      const userId = c.userId!;
+      const season = await getActiveSeason(this.opts.prisma);
+      if (!season) {
+        this.send(c, { t: "error", code: "NO_SEASON", message: "Não há temporada ranqueada em andamento." });
+        return;
+      }
+      const cooldown = await rankedCooldownSeconds(this.opts.prisma, userId);
+      if (cooldown > 0) {
+        this.send(c, { t: "error", code: "RANKED_COOLDOWN", message: `Você abandonou uma partida ranqueada. Fila liberada em ${Math.ceil(cooldown / 60)} min.` });
+        return;
+      }
+      mmr = (await getOrCreateRating(this.opts.prisma, season, mode, userId)).mmr;
+      // A conexão pode ter caído ou entrado em partida enquanto consultávamos o banco.
+      if (c.userId !== userId || this.clients.get(userId) !== c || (c.match && !c.match.isEnded)) return;
+    }
     this.dequeue(c);
-    c.queuedMode = mode;
-    this.queues[mode].push({ client: c, loadout, since: Date.now() });
-    this.tryMatch(mode);
-    this.broadcastQueue(mode);
+    c.queued = { mode, ranked };
+    this.queueOf(mode, ranked).push({ client: c, loadout, since: Date.now(), mmr });
+    this.tryMatch(mode, ranked);
+    this.broadcastQueue(mode, ranked);
   }
 
   private dequeue(c: Client) {
-    if (!c.queuedMode) return;
-    const mode = c.queuedMode;
-    this.queues[mode] = this.queues[mode].filter((e) => e.client !== c);
-    c.queuedMode = null;
-    this.broadcastQueue(mode);
+    if (!c.queued) return;
+    const { mode, ranked } = c.queued;
+    const key = queueKey(mode, ranked);
+    this.queues.set(key, this.queueOf(mode, ranked).filter((e) => e.client !== c));
+    c.queued = null;
+    this.broadcastQueue(mode, ranked);
   }
 
-  private broadcastQueue(mode: QueueMode) {
-    const q = this.queues[mode];
+  private broadcastQueue(mode: QueueMode, ranked: boolean) {
+    const q = this.queueOf(mode, ranked);
     const needed = MODES[mode].teamSize * 2;
-    for (const e of q) this.send(e.client, { t: "queue", state: "searching", mode, inQueue: q.length, needed, since: e.since });
+    for (const e of q) this.send(e.client, { t: "queue", state: "searching", mode, ranked, inQueue: q.length, needed, since: e.since });
   }
 
-  private tryMatch(mode: QueueMode) {
+  /** Reavalia as filas ranqueadas (exposto para testes; em produção roda a cada segundo). */
+  matchmakingTick(now = Date.now()) {
+    for (const mode of Object.keys(MODES) as QueueMode[]) this.tryMatch(mode, true, now);
+  }
+
+  private tryMatch(mode: QueueMode, ranked: boolean, now = Date.now()): void {
     const size = MODES[mode].teamSize * 2;
-    const q = this.queues[mode];
+    const q = this.queueOf(mode, ranked);
     while (q.length >= size) {
-      const group = q.splice(0, size);
-      // Fase 3: ordem de chegada. A Fase 5 balanceia os times por MMR (Glicko-2).
-      const seats = group.map<MatchSeat>((e) => ({ userId: e.client.userId!, username: e.client.username, color: e.client.color, characterId: e.client.characterId, character: e.client.character, loadout: e.loadout }));
-      const half = size / 2;
+      let group: QueueEntry[];
+      let teams: [QueueEntry[], QueueEntry[]];
+      if (ranked) {
+        // Ranqueada: jogadores com MMR próximo (a janela abre com a espera) e equipes balanceadas pela soma de MMR.
+        const picked = pickMatchGroup(q.map((e) => ({ id: e.client.userId!, mmr: e.mmr, waitedMs: now - e.since })), size);
+        if (!picked) break;
+        const ids = new Set(picked.map((p) => p.id));
+        group = q.filter((e) => ids.has(e.client.userId!));
+        this.queues.set(queueKey(mode, ranked), q.filter((e) => !ids.has(e.client.userId!)));
+        teams = balanceTeams(group);
+      } else {
+        // Casual: ordem de chegada.
+        group = q.splice(0, size);
+        teams = [group.slice(0, size / 2), group.slice(size / 2)];
+      }
+      const seat = (e: QueueEntry): MatchSeat => ({ userId: e.client.userId!, username: e.client.username, color: e.client.color, characterId: e.client.characterId, character: e.client.character, loadout: e.loadout });
       const mapCode = this.rotation[this.rotationIndex++ % this.rotation.length]!;
       const map = MAP_REGISTRY[mapCode]!;
       const match = new Match({
@@ -323,17 +379,22 @@ export class GameServer {
         mode,
         mapCode,
         map,
-        teams: [seats.slice(0, half), seats.slice(half)],
+        ranked,
+        teams: [teams[0].map(seat), teams[1].map(seat)],
         seed: randomInt(1, 2 ** 31),
         onEnd: (r) => this.onMatchEnd(match, r),
       });
       this.matches.set(match.id, match);
       for (const e of group) {
-        e.client.queuedMode = null;
+        e.client.queued = null;
         e.client.match = match;
         match.attach(e.client.userId!, this.connFor(e.client));
       }
-      this.log.info(`[game] partida ${match.id} (${mode}) criada: ${seats.map((s) => s.username).join(", ")}`);
+      this.log.info(`[game] partida ${match.id} (${mode}${ranked ? ", ranqueada" : ""}) criada: ${group.map((e) => e.client.username).join(", ")}`);
+      if (ranked) {
+        this.broadcastQueue(mode, ranked);
+        return this.tryMatch(mode, ranked, now); // a fila foi recriada: recomeça com a lista nova
+      }
     }
   }
 
@@ -360,12 +421,17 @@ export class GameServer {
     const map = await db.gameMap.findUnique({ where: { code: r.mapCode }, select: { id: true } });
     if (!map) throw new Error(`Mapa ${r.mapCode} não existe no banco`);
     const resultFor = (team: 0 | 1, abandoned: boolean) => (abandoned ? "ABANDONED" : r.winner === null ? "DRAW" : r.winner === team ? "WIN" : "LOSS");
-    await db.$transaction(async (tx) => {
+    // Ranqueada: vale a temporada em andamento quando a partida termina (se ela acabou no meio, a partida não pontua).
+    const season = r.ranked ? await getActiveSeason(db, r.endedAt) : null;
+    const rankedUpdates = await db.$transaction(async (tx) => {
+      const ranked = season ? await applyRankedMatch(tx, season, r) : [];
+      const rankedOf = (id: string) => ranked.find((u) => u.userId === id);
       await tx.match.create({
         data: {
           id: r.matchId,
           mode: MODES[r.mode].db,
-          type: "CASUAL",
+          type: r.ranked ? "RANKED" : "CASUAL",
+          seasonId: season?.id ?? null,
           status: "FINISHED",
           mapId: map.id,
           roundsToWin: r.roundsToWin,
@@ -391,6 +457,9 @@ export class GameServer {
               score: p.kills * 100 + p.assists * 40 + p.headshots * 20,
               isMvp: p.mvp,
               abandoned: p.abandoned,
+              pointsDelta: rankedOf(p.id)?.pointsDelta ?? null,
+              mmrBefore: rankedOf(p.id)?.mmrBefore ?? null,
+              mmrAfter: rankedOf(p.id)?.mmrAfter ?? null,
             })),
           },
           events: { create: r.events.map((e) => ({ tick: e.tick, round: e.round, type: e.type, actorId: e.actorId ?? null, targetId: e.targetId ?? null, data: e.data })) },
@@ -414,7 +483,13 @@ export class GameServer {
           },
         });
       }
+      return ranked;
     });
+    // Cada jogador recebe só o próprio resultado ranqueado (pontos e patente; o MMR fica oculto).
+    for (const u of rankedUpdates) {
+      const c = this.clients.get(u.userId);
+      if (c) this.send(c, u.wire);
+    }
   }
 
   /** Banimento/suspensão/troca de senha derrubam a conexão de jogo em até `recheckMs`. */

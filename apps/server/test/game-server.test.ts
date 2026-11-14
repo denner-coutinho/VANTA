@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
 import { GAME_PROTOCOL_VERSION, WEAPON_CATALOG, encodeCommand, type ServerMessage } from "@vanta/shared";
 import { GameServer } from "../src/game/server.js";
+import { TestClient } from "./game-helpers.js";
 import { closeTestContext, createTestContext, newPlayer, resetState, type TestContext } from "./helpers.js";
 
 let ctx: TestContext;
@@ -34,59 +34,8 @@ async function registerToken() {
   return { token: j.accessToken as string, userId: j.user.id as string, username: j.user.username as string };
 }
 
-class TestClient {
-  ws: WebSocket;
-  msgs: ServerMessage[] = [];
-  closed: { code: number; reason: string } | null = null;
-  private waiters: Array<() => void> = [];
-  constructor(origin?: string) {
-    this.ws = new WebSocket(url, origin ? { headers: { origin } } : undefined);
-    this.ws.on("message", (d) => {
-      this.msgs.push(JSON.parse(d.toString()));
-      this.waiters.splice(0).forEach((w) => w());
-    });
-    this.ws.on("close", (code, reason) => {
-      this.closed = { code, reason: reason.toString() };
-      this.waiters.splice(0).forEach((w) => w());
-    });
-    this.ws.on("error", () => {});
-  }
-  open() {
-    return new Promise<void>((res, rej) => {
-      if (this.ws.readyState === WebSocket.OPEN) return res();
-      this.ws.once("open", () => res());
-      this.ws.once("error", rej);
-      this.ws.once("unexpected-response", () => rej(new Error("rejeitado")));
-    });
-  }
-  send(o: unknown) {
-    this.ws.send(JSON.stringify(o));
-  }
-  async waitFor<T extends ServerMessage["t"]>(t: T, pred: (m: Extract<ServerMessage, { t: T }>) => boolean = () => true, ms = 3000): Promise<Extract<ServerMessage, { t: T }>> {
-    const deadline = Date.now() + ms;
-    for (;;) {
-      const found = this.msgs.find((m) => m.t === t && pred(m as Extract<ServerMessage, { t: T }>));
-      if (found) return found as Extract<ServerMessage, { t: T }>;
-      if (this.closed) throw new Error(`conexão fechada (${this.closed.code} ${this.closed.reason}) esperando ${t}`);
-      if (Date.now() > deadline) throw new Error(`timeout esperando ${t}`);
-      await new Promise<void>((r) => {
-        this.waiters.push(r);
-        setTimeout(r, 50);
-      });
-    }
-  }
-  async waitClosed(ms = 3000) {
-    const deadline = Date.now() + ms;
-    while (!this.closed && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
-    return this.closed;
-  }
-  close() {
-    this.ws.close();
-  }
-}
-
 async function connect(token: string) {
-  const c = new TestClient();
+  const c = new TestClient(url);
   await c.open();
   c.send({ t: "hello", token, v: GAME_PROTOCOL_VERSION });
   await c.waitFor("welcome");
@@ -95,20 +44,20 @@ async function connect(token: string) {
 
 describe("servidor de jogo (WebSocket)", () => {
   it("rejeita token inválido e conexão sem hello", async () => {
-    const c = new TestClient();
+    const c = new TestClient(url);
     await c.open();
     c.send({ t: "hello", token: "token.falso.qualquer", v: GAME_PROTOCOL_VERSION });
     expect((await c.waitFor("error")).code).toBe("UNAUTHORIZED");
     expect((await c.waitClosed())?.code).toBe(4001);
 
-    const c2 = new TestClient();
+    const c2 = new TestClient(url);
     await c2.open();
     c2.send({ t: "queue", mode: "1v1", loadout: [RIFLE] });
     expect((await c2.waitClosed())?.code).toBe(4001);
   });
 
   it("bloqueia Origin de outro site (cross-site WebSocket hijacking)", async () => {
-    const evil = new TestClient("https://site-malicioso.example");
+    const evil = new TestClient(url, "https://site-malicioso.example");
     await expect(evil.open()).rejects.toThrow();
   });
 

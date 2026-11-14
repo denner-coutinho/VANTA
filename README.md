@@ -56,6 +56,7 @@ node scripts/e2e-smoke.mjs            # ponta a ponta no navegador (com `pnpm de
 node scripts/e2e-training.mjs         # Fase 2: joga o treinamento (tiro, recarga, troca, pausa, arsenal)
 node scripts/e2e-multiplayer.mjs      # Fase 3: dois navegadores jogam 1v1 (fila, tiro, reconexão, W.O.)
 node scripts/e2e-maps.mjs             # Fase 4: 5 partidas seguidas, uma em cada mapa, com os 8 operadores e suas animações
+node scripts/e2e-ranked.mjs           # Fase 5: quatro navegadores em duas ranqueadas 1v1 (classificação, PP, bloqueio por abandono, ranking)
 ```
 
 O teste E2E precisa do Playwright: `npm i -g playwright && npx playwright install chromium`.

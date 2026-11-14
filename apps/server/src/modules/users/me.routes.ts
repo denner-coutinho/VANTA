@@ -10,9 +10,11 @@ export async function meRoutes(app: FastifyInstance) {
       where: { id: req.auth.userId },
       include: { profile: true, wallet: true },
     });
-    const activeSeason = await app.prisma.rankedSeason.findFirst({ where: { isActive: true } });
+    const now = new Date();
+    const activeSeason = await app.prisma.rankedSeason.findFirst({ where: { isActive: true, closedAt: null, startsAt: { lte: now }, endsAt: { gt: now } } });
+    // Destaque do perfil: o melhor modo já classificado; se nenhum, o que está mais perto de terminar a classificação.
     const rating = activeSeason
-      ? await app.prisma.rankedRating.findFirst({ where: { userId: user.id, seasonId: activeSeason.id }, orderBy: { points: "desc" } })
+      ? await app.prisma.rankedRating.findFirst({ where: { userId: user.id, seasonId: activeSeason.id }, orderBy: [{ placementLeft: "asc" }, { points: "desc" }] })
       : null;
     const ranks = activeSeason ? await app.prisma.rank.findMany({ orderBy: { order: "asc" } }) : [];
     const points = rating?.points ?? 0;
