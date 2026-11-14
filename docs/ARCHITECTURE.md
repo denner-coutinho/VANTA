@@ -6,18 +6,18 @@
                      ┌──────────────────────────── Navegador / PC ────────────────────────────┐
                      │  apps/client  (Vite + React + TypeScript + Three.js)                    │
                      │   • UI/menus (React)        • Gameplay 3D (Three.js puro, loop próprio) │
-                     │   • Predição local + interpolação (Fase 3)                              │
+                     │   • Predição local + interpolação                                       │
                      └───────────────┬───────────────────────────────┬─────────────────────────┘
-                          HTTPS/JSON │                               │ WebSocket (Fase 3)
+                          HTTPS/JSON │                               │ WebSocket /game
                      ┌───────────────▼──────────────┐   ┌────────────▼────────────────────────┐
-                     │ apps/server (API, Fastify)   │   │ apps/game-server (Colyseus, Fase 3) │
-                     │ auth · perfil · conteúdo ·   │   │ servidor AUTORITATIVO a 30–60 Hz:   │
+                     │ apps/server (API, Fastify)   │   │ apps/server/src/game (ws, :4100)    │
+                     │ auth · perfil · conteúdo ·   │   │ servidor AUTORITATIVO a 60 Hz:      │
                      │ loja · economia · admin ·    │   │ movimento, tiros (raycast + lag     │
                      │ webhooks Stripe              │   │ compensation), dano, rounds         │
                      └───────┬───────────────┬──────┘   └──────┬──────────────────┬───────────┘
                              │               │                 │                  │
-                     ┌───────▼──────┐ ┌──────▼──────┐   resultado assinado   matchmaking
-                     │ PostgreSQL   │ │ Redis       │◄──────────┘            (filas no Redis)
+                     ┌───────▼──────┐ ┌──────▼──────┐   resultado da partida  matchmaking
+                     │ PostgreSQL   │ │ Redis       │◄──────────┘            (fila em memória)
                      │ (Prisma)     │ │ rate limit, │
                      │ fonte da     │ │ throttle,   │
                      │ verdade      │ │ filas, pres.│
@@ -32,13 +32,13 @@
 | `packages/db` | Esquema Prisma, migrations, seed de conteúdo, `createPrismaClient`. |
 | `apps/server` | API HTTP (Fastify). Módulos: `auth`, `users`, `content`, `health`, `mail` (próximos: `store`, `economy`, `payments`, `admin`, `social`, `ranked`). |
 | `apps/client` | Cliente web. `screens/` (telas), `three/` (cenas 3D), `api/` (cliente HTTP), `auth/`, `audio/`. |
-| `apps/game-server` | *(Fase 3)* Servidor de partidas Colyseus, reutilizando `packages/shared` para física e armas. |
+| `apps/server/src/game` | Servidor de partidas (processo separado `dev:game`, WebSocket `ws`), reutilizando `packages/shared` para física, armas e mapas. |
 
 ## Decisões e justificativas
 
 - **Fastify em vez de NestJS.** Para uma API que precisa de baixa latência e que será dividida em módulos claros, o Fastify entrega ~2–3× mais requisições por segundo com muito menos cerimônia. A organização em módulos (rotas + serviço + testes) dá a mesma separação que o Nest sem o custo de decorators/DI. Se a equipe crescer muito, os serviços já são classes injetáveis e migram fácil.
 - **Three.js puro no gameplay, React só na interface.** Um FPS precisa de controle total do loop (tick fixo, pointer lock, pooling de objetos). React Three Fiber é ótimo para cenas declarativas, mas adiciona reconciliação desnecessária no loop de jogo. Menus continuam em React.
-- **Colyseus no servidor de partidas (Fase 3).** Salas com estado sincronizado por delta, reconexão nativa (`allowReconnection`), matchmaking embutido e escala horizontal com Redis presence. Evita reinventar a camada de rede, mas a lógica de simulação será nossa (tick autoritativo).
+- **Servidor de partidas próprio sobre `ws` (Fase 3), não Colyseus.** O plano inicial era Colyseus, mas a sincronização de estado por delta dele não ajuda num FPS com predição e reconciliação por comando: o que importa é o tick autoritativo e o protocolo de comandos, que são nossos de qualquer forma. Com `ws` + zod o protocolo fica explícito e testável, e a escala horizontal (fila no Redis) entra na Fase 8.
 - **Prisma 6 (não 7).** A versão 7 mudou a forma de conectar (driver adapters obrigatórios) e ainda é recente; a 6.19 é estável e madura. A migração é planejada depois.
 - **Autenticação própria** (sem provedor externo): o jogo precisa controlar banimentos com efeito imediato, papéis administrativos e auditoria. Ver “Segurança”.
 - **Moeda virtual com razão contábil.** `Wallet.balance` é um cache; a verdade é `WalletTransaction` (somente-inserção, protegida por trigger no banco), com chave de idempotência única.
@@ -76,9 +76,16 @@ Restrições extras em SQL (`20261114160800_integrity_constraints`): saldo não 
 
 ## Assets 3D (limitação honesta e plano)
 
-Não é possível gerar aqui personagens com qualidade comercial (escultura, retopologia, texturas, rig e animação de captura). Plano:
-1. **Agora:** operador procedural em código (original, animado em idle, cabeça segue o cursor) atrás do contrato `OperatorRig`.
-2. **Fase 4:** pipeline glTF + `AnimationMixer` com um rig humanoide único (`vanta_humanoid_v1`) compartilhado pelos 8 personagens. Fontes viáveis: modelos encomendados a um artista, bases CC0 (ex.: Quaternius, Kenney) personalizadas, e animações com licença que permite uso comercial em jogos. Cada personagem vira um `modelKey` no banco, sem mudar código.
+Não é possível gerar aqui personagens com qualidade comercial (escultura, retopologia, texturas, rig e animação de captura). O que existe hoje:
+
+- **Fase 4 (atual):** os 8 operadores são modelos **procedurais** (`apps/client/src/three/characters.ts`), originais, gerados em código. Cada um tem silhueta própria (capacete, ombreiras, capa, mochila, drone, antena), mas todos compartilham o mesmo esqueleto hierárquico e a mesma altura (~1,80 m, igual à hitbox do servidor): a aparência não dá vantagem. As animações são procedurais e misturadas por peso a cada quadro: idle, walk, run, crouch (pernas com IK analítica para os pés ficarem no chão), jump, die, e as sobreposições shoot e reload. O mesmo `CharacterRig` é usado no menu (com demonstração de recarga e disparo) e na partida, alimentado pelos bits de animação do snapshot (`WireOther[10]`: no chão, correndo, recarregando).
+- **Depois:** pipeline glTF + `AnimationMixer` com um rig humanoide único compartilhado pelos 8 personagens, sem mudar o contrato do `CharacterRig` (`updateAt`, `shoot`, `state`). Fontes viáveis: modelos encomendados a um artista, bases CC0 personalizadas e animações com licença comercial.
+
+## Mapas (Fase 4)
+
+Os 5 mapas são dados (`packages/shared/src/game/maps/*.ts`), montados com `SymmetricMapBuilder`: descreve-se metade do mapa e ela é espelhada por rotação de 180°, o que garante simetria exata entre os times. Cada mapa tem tema visual (`neon`, `desert`, `frost`, `lab`, `orbital`), sol opcional e zonas especiais (Orbital Zero tem um setor com 40% da gravidade, aplicado pela mesma simulação no cliente e no servidor).
+
+`MapAnalyzer` (`maps/analysis.ts`) valida os mapas com a física real do jogo: explora a grade a partir do spawn caminhando de verdade entre células, confere que não há linha de visão entre os spawns e procura um ponto de contato (linha de visão a 8–30 m pelo caminho mais curto). Os testes rodam isso em todos os mapas, e o E2E da Fase 4 usa os mesmos caminhos para jogar uma partida em cada mapa. O servidor de jogo alterna os mapas em rodízio (`MAP_ROTATION`, configurável com `GAME_MAPS`).
 
 ## Gameplay (Fase 2)
 

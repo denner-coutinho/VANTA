@@ -78,7 +78,7 @@ export function maxGroundSpeed(input: Pick<MoveInput, "sprint" | "crouch" | "aim
  * Avança o jogador um tick. Função pura sobre o estado (muta `s`), determinística:
  * o servidor autoritativo (Fase 3) roda exatamente este código com os inputs recebidos.
  */
-export function stepPlayer(s: PlayerState, input: MoveInput, world: CollisionWorld, dt = TICK_DT): void {
+export function stepPlayer(s: PlayerState, input: MoveInput, world: CollisionWorld, dt = TICK_DT, gravityScale = 1): void {
   s.jumpCooldown = Math.max(0, s.jumpCooldown - dt);
 
   // Agachar / levantar (só levanta se houver espaço acima).
@@ -146,7 +146,7 @@ export function stepPlayer(s: PlayerState, input: MoveInput, world: CollisionWor
     s.vel.z *= 0.92;
   }
 
-  s.vel.y = Math.max(-MOVE.maxFallSpeed, s.vel.y - MOVE.gravity * dt);
+  s.vel.y = Math.max(-MOVE.maxFallSpeed, s.vel.y - MOVE.gravity * gravityScale * dt);
 
   moveAndCollide(s, world, dt);
 }

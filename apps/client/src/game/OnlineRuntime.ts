@@ -35,13 +35,14 @@ import {
   type WeaponStats,
   type WireCommand,
   type WireOther,
+  ANIM_FLAG,
 } from "@vanta/shared";
 import { InputManager } from "./input";
 import { GameAudio } from "./audio";
 import { buildMap, type BuiltMap } from "./mapBuilder";
 import { ViewModel } from "./viewmodel";
 import { Effects } from "./effects";
-import { RemoteAvatar } from "./remotePlayer";
+import { CharacterRig } from "../three/characters";
 import type { GameSettings, Quality } from "./GameRuntime";
 
 export const TEAM_COLORS = ["#287BFF", "#FF2E63"] as const;
@@ -106,7 +107,7 @@ interface SnapOthers {
 
 interface Remote {
   info: MatchInfo["players"][number];
-  avatar: RemoteAvatar;
+  avatar: CharacterRig;
   pos: THREE.Vector3;
   alive: boolean;
   hp: number;
@@ -196,8 +197,10 @@ export class OnlineRuntime {
     this.scene.background = new THREE.Color(atm.sky);
     this.scene.fog = new THREE.FogExp2(atm.fog, atm.fogDensity);
     this.scene.add(new THREE.HemisphereLight(atm.ambient, "#2a3048", 2.6));
-    const moon = new THREE.DirectionalLight(0xb8c8ff, 1.8);
-    moon.position.set(-20, 40, -10);
+    const sun = atm.sun;
+    const moon = new THREE.DirectionalLight(sun?.color ?? 0xb8c8ff, sun ? sun.intensity : atm.theme === "lab" ? 0.25 : 1.8);
+    if (sun) moon.position.set(sun.dir.x * 50, sun.dir.y * 50, sun.dir.z * 50);
+    else moon.position.set(-20, 40, -10);
     moon.castShadow = q.shadows;
     moon.shadow.mapSize.set(2048, 2048);
     Object.assign(moon.shadow.camera, { left: -36, bottom: -36, right: 36, top: 36, far: 120 });
@@ -227,7 +230,7 @@ export class OnlineRuntime {
     for (const p of info.players) {
       if (p.id === info.you) continue;
       const ally = p.team === info.yourTeam;
-      const avatar = new RemoteAvatar(p.color, TEAM_COLORS[p.team], ally ? p.username : null);
+      const avatar = new CharacterRig(p.character, { accent: p.color, team: TEAM_COLORS[p.team], name: ally ? p.username : null, detail: "low" });
       this.scene.add(avatar.root);
       this.remotes.set(p.id, { info: p, avatar, pos: new THREE.Vector3(0, -100, 0), alive: true, hp: 100, connected: p.connected });
     }
@@ -238,6 +241,7 @@ export class OnlineRuntime {
     this.composer.addPass(new OutputPass());
 
     this.audio = new GameAudio(settings.volume);
+    this.audio.startAmbience(mapDef.atmosphere.theme);
     this.input = new InputManager(this.renderer.domElement, (locked) => {
       this.locked = locked;
       if (locked) this.audio.resume();
@@ -331,7 +335,7 @@ export class OnlineRuntime {
     });
     this.pending = this.pending.filter((c) => c.seq > w.seq);
     const frozen = s.phase !== "live";
-    for (const c of this.pending) applyCommand(this.me, c, { world: this.world, loadout: this.loadout, frozen });
+    for (const c of this.pending) applyCommand(this.me, c, { world: this.world, loadout: this.loadout, frozen, zones: this.mapDef.zones });
 
     const dx = before.x - this.me.move.pos.x;
     const dy = before.y - this.me.move.pos.y;
@@ -359,8 +363,8 @@ export class OnlineRuntime {
       case "shot": {
         if (ev.by === this.info.you) return; // o próprio tiro já foi desenhado na predição
         const r = this.remotes.get(ev.by);
-        r?.avatar.muzzleFlash();
-        this.audio.shot(ev.cat as WeaponStats["category"], ev.from);
+        r?.avatar.shoot();
+        this.audio.shot(ev.cat as WeaponStats["category"], ev.from, ev.w);
         const enemy = this.teamOf(ev.by) !== this.info.yourTeam;
         const from = r ? { x: r.pos.x, y: r.pos.y + 1.4, z: r.pos.z } : ev.from;
         for (const end of ev.ends.slice(0, 3)) {
@@ -496,15 +500,18 @@ export class OnlineRuntime {
       if (wheel !== 0 && this.loadout.length > 1) this.wantSlot = (this.wantSlot + wheel + this.loadout.length) % this.loadout.length;
     }
     const reload = active && inp.consume("reload");
+    // Toques rápidos (entre dois ticks, comuns com FPS baixo) também contam; sempre consome para não "sobrar".
+    const jumpTap = inp.consume("jump");
+    const fireTap = inp.consumeFireTap();
     const cmd: PlayerCommand = {
       seq: ++this.seq,
       forward: active ? (inp.isDown("forward") ? 1 : 0) - (inp.isDown("back") ? 1 : 0) : 0,
       right: active ? (inp.isDown("right") ? 1 : 0) - (inp.isDown("left") ? 1 : 0) : 0,
-      jump: active && inp.isDown("jump"),
+      jump: active && (inp.isDown("jump") || jumpTap),
       crouch: active && inp.isDown("crouch"),
       sprint: active && inp.isDown("sprint"),
       aim: active && inp.aim,
-      fire: active && inp.fire,
+      fire: active && (inp.fire || fireTap),
       reload,
       slot: this.wantSlot,
       yaw: Math.atan2(Math.sin(this.yaw), Math.cos(this.yaw)),
@@ -512,7 +519,7 @@ export class OnlineRuntime {
       viewTick: Math.max(0, Math.floor(this.renderTick())),
     };
     this.prevPos = { ...this.me.move.pos };
-    const out = applyCommand(this.me, cmd, { world: this.world, loadout: this.loadout, frozen: this.phase !== "live" });
+    const out = applyCommand(this.me, cmd, { world: this.world, loadout: this.loadout, frozen: this.phase !== "live", zones: this.mapDef.zones });
     this.pending.push(cmd);
     this.outbox.push(encodeCommand(cmd));
 
@@ -528,7 +535,7 @@ export class OnlineRuntime {
     if (out.dryFire) this.audio.dryFire();
     if (out.shot) {
       // Feedback imediato (predição); dano e acertos chegam do servidor.
-      this.audio.shot(stats.category);
+      this.audio.shot(stats.category, undefined, stats.code);
       this.vm.onShot(stats.recoil);
       this.pitch = clamp(this.pitch + out.shot.recoilPitch, -89 * DEG, 89 * DEG);
       this.yaw += out.shot.recoilYaw;
@@ -594,7 +601,15 @@ export class OnlineRuntime {
       const crouch = oa[6] + (ob[6] - oa[6]) * k;
       r.alive = (k < 0.5 ? oa : ob)[7] === 1;
       r.hp = (k < 0.5 ? oa : ob)[9];
-      r.avatar.update(dt, r.pos, yaw, pitch, crouch, r.alive);
+      const flags = (k < 0.5 ? oa : ob)[10] ?? ANIM_FLAG.onGround;
+      r.avatar.updateAt(dt, r.pos, yaw, {
+        pitch,
+        crouch,
+        alive: r.alive,
+        onGround: (flags & ANIM_FLAG.onGround) !== 0,
+        sprinting: (flags & ANIM_FLAG.sprinting) !== 0,
+        reloading: (flags & ANIM_FLAG.reloading) !== 0,
+      });
       r.avatar.root.visible = r.connected || r.alive;
     }
   }
@@ -628,6 +643,7 @@ export class OnlineRuntime {
     this.audio.setListener(x, eyeY, z, f.x, f.y, f.z);
     this.interpolateOthers(dt);
     this.fx.update(dt);
+    this.map.update(dt);
 
     const now = this.me.seq * TICK_MS;
     const speed = Math.hypot(p.vel.x, p.vel.z);
@@ -680,6 +696,8 @@ export class OnlineRuntime {
 
   debugState() {
     return {
+      map: this.info.map,
+      team: this.info.yourTeam,
       pos: { ...this.me.move.pos },
       eye: combatantEye(this.me),
       yaw: this.yaw,
@@ -693,7 +711,7 @@ export class OnlineRuntime {
       round: this.lastSnap?.round ?? 0,
       score: this.lastSnap?.score ?? [0, 0],
       locked: this.locked,
-      others: [...this.remotes.entries()].map(([id, r]) => ({ id, pos: { x: r.pos.x, y: r.pos.y, z: r.pos.z }, alive: r.alive })),
+      others: [...this.remotes.entries()].map(([id, r]) => ({ id, character: r.avatar.code, anim: r.avatar.state, overlays: { ...r.avatar.overlays }, pos: { x: r.pos.x, y: r.pos.y, z: r.pos.z }, alive: r.alive })),
       kd: Object.fromEntries(this.kd),
       killLog: [...this.killLog],
       predictedVsServer: this.lastSnap ? Math.hypot(this.lastSnap.you.pos.x - this.me.move.pos.x, this.lastSnap.you.pos.z - this.me.move.pos.z) : null,

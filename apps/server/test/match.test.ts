@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAP_REGISTRY, MAX_HEALTH, WEAPON_CATALOG, eyeHeight, weaponStatsFromRow, type MatchEventWire, type PlayerCommand, type ServerMessage, type Vec3 } from "@vanta/shared";
+import { ANIM_FLAG, MAP_REGISTRY, MAX_HEALTH, WEAPON_CATALOG, eyeHeight, weaponStatsFromRow, type MatchEventWire, type PlayerCommand, type ServerMessage, type Vec3 } from "@vanta/shared";
 import { Match, type MatchResult, type MatchSeat } from "../src/game/match.js";
 
 const W = (code: string) => weaponStatsFromRow(WEAPON_CATALOG.find((w) => w.code === code)! as unknown as Record<string, unknown>);
@@ -7,7 +7,7 @@ const RIFLE = WEAPON_CATALOG.find((w) => w.category === "ASSAULT_RIFLE")!.code;
 const SNIPER = WEAPON_CATALOG.find((w) => w.category === "SNIPER")!.code;
 
 function seat(n: number, loadout = [RIFLE]): MatchSeat {
-  return { userId: `u${n}`, username: `Jogador${n}`, color: "#287BFF", characterId: null, loadout: loadout.map(W) };
+  return { userId: `u${n}`, username: `Jogador${n}`, color: "#287BFF", characterId: null, character: "RAVEN", loadout: loadout.map(W) };
 }
 
 interface Harness {
@@ -204,6 +204,36 @@ describe("partida autoritativa", () => {
     const other = snap.others.find((o) => o[0] === "u1")!;
     expect(Math.abs(other[5])).toBeLessThanOrEqual(Math.PI / 2);
     expect(Math.abs(other[4])).toBeLessThanOrEqual(Math.PI);
+  });
+
+  it("snapshot leva o estado de animação do adversário (chão, corrida, recarga) e o código da arma no tiro", () => {
+    const h = setup();
+    untilLive(h);
+    duelPositions(h);
+    const lastOther = () => {
+      const snaps = h.inbox.get("u2")!.filter((m) => m.t === "snap");
+      const s = snaps.at(-1)!;
+      return s.t === "snap" ? s.others[0]! : null;
+    };
+    for (let i = 0; i < 4; i++) tick(h);
+    expect(lastOther()![10] & ANIM_FLAG.onGround).toBe(ANIM_FLAG.onGround);
+    // Corrida (para frente com sprint).
+    for (let i = 0; i < 20; i++) tick(h, { u1: { forward: 1, sprint: true, yaw: Math.PI } });
+    expect(lastOther()![10] & ANIM_FLAG.sprinting).toBe(ANIM_FLAG.sprinting);
+    // Pulo: sai do chão.
+    tick(h, { u1: { jump: true } });
+    for (let i = 0; i < 6; i++) tick(h);
+    expect(lastOther()![10] & ANIM_FLAG.onGround).toBe(0);
+    for (let i = 0; i < 90; i++) tick(h);
+    // Atira para o alto (evento com o código da arma) e recarrega.
+    h.inbox.get("u2")!.length = 0;
+    tick(h, { u1: { fire: true, pitch: 1.4 } });
+    for (let i = 0; i < 3; i++) tick(h);
+    const shotEv = events(h, "u2").find((e) => e.k === "shot");
+    expect(shotEv && shotEv.k === "shot" && shotEv.w).toBe(RIFLE);
+    tick(h, { u1: { reload: true } });
+    for (let i = 0; i < 4; i++) tick(h);
+    expect(lastOther()![10] & ANIM_FLAG.reloading).toBe(ANIM_FLAG.reloading);
   });
 
   it("vida dos inimigos não é enviada (só a dos aliados)", () => {

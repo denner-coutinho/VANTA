@@ -93,7 +93,36 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **O servidor envia a posição de todos os jogadores**, o que permite *wallhack* em cliente adulterado. Filtrar por visibilidade fica para a Fase 8.
 - **Fogo amigo desligado**: aliados não se ferem e balas atravessam aliados.
 - **Times por ordem de chegada.** O balanceamento por MMR (Glicko-2) e o modo ranqueado chegam na Fase 5. As partidas desta fase são casuais e não mexem em patente.
-- **Avatares procedurais** (personagens rigados chegam na Fase 4). A cor do visor segue o personagem principal do jogador; a faixa, o time.
+- **Avatares procedurais** (substituídos pelos 8 operadores animados na Fase 4). A cor do visor segue o personagem principal do jogador; a faixa, o time.
 
-## Fases 4–8 ⏳
-Conteúdo (mapas, personagens, armas, áudio) · Competitivo (MMR Glicko-2, 15 patentes, temporadas, ranking) · Economia (VC, loja, inventário, Stripe Checkout + webhooks) · Sistemas sociais (amigos, clãs, missões, replays, kill cam) · Finalização (carga, segurança, Docker, CI, deploy).
+## Fase 4 — Conteúdo ✅ (14/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| 4 mapas novos: **Desert Protocol** (túnel sob a duna, torre, hangar), **Frost Base** (galpão em L, pátio de contêineres, ponte rolante), **Blackout Lab** (coberto, salas escuras, luz de emergência que pisca), **Orbital Zero** (estação espacial com setor de 40% da gravidade) | ✅ | `packages/shared/src/game/maps/*.ts` |
+| Simetria exata entre os times (`SymmetricMapBuilder` espelha metade do mapa) e spawns livres | ✅ | Testes por mapa |
+| **Linhas de visão testadas**: nenhum spawn enxerga o outro; todo o mapa é alcançável andando com a física real; existe ponto de contato a 8–30 m que não depende de quina | ✅ | `MapAnalyzer` + `maps.test.ts` (5 mapas) |
+| Gravidade reduzida no Orbital Zero, igual no cliente e no servidor (plataformas só alcançáveis com o pulo longo) | ✅ | Teste de pulo |
+| Visual próprio por mapa: céu, neblina, sol, textura do chão, cores por material, neve e poeira em movimento, estrelas e planeta, luzes do laboratório piscando | ✅ | Capturas 20–24 |
+| Rotação de mapas na fila (rodízio, configurável com `GAME_MAPS`) | ✅ | `game-server.test.ts` + E2E |
+| **8 operadores procedurais distintos** (RAVEN, GHOST, NOVA, TITAN, ZERO, VIPER, ECHO, ORION), com a mesma altura/hitbox | ✅ | `characters.test.ts` (modelos diferentes, altura igual) + captura 18 |
+| Animações: idle, andar, correr, agachar, pular, atirar, recarregar, morrer (procedurais, misturadas por peso; pés no chão ao agachar) | ✅ | Testes de transição e pose + captura 19 + E2E (o adversário vê todas) |
+| Operador escolhido aparece no menu (com demonstração de recarga e disparo) e na partida para os outros jogadores | ✅ | E2E + captura 26 |
+| Snapshot leva o estado de animação (no chão, correndo, recarregando) — nada que o jogador não veria | ✅ | `match.test.ts` |
+| Modelo de arma em 1ª pessoa distinto por arma (silhueta e cor de acabamento próprias) | ✅ | Captura 25 (os 10 modelos, gerados pela mesma função usada em jogo) |
+| Correção encontrada no E2E: toque rápido de pulo ou clique de tiro entre dois ticks (comum com FPS baixo) se perdia; agora conta | ✅ | E2E (pulo e tiros do adversário vistos em todos os mapas) |
+| Som por arma (timbre próprio para cada uma das 10) também nos tiros dos outros jogadores; ambiente sonoro e reverberação por mapa | ✅ | Manual (o navegador de teste roda mudo) |
+
+**Testes:** 121 automatizados (53 API + servidor de jogo, 57 shared, 11 cliente, 7 deles dos operadores) + E2E Fases 1–3 + **E2E Fase 4: 5 partidas seguidas entre dois navegadores reais, uma em cada mapa, 9/9 etapas** (`scripts/e2e-maps.mjs`), todos passando. O E2E da Fase 3 agora calcula o caminho no mapa que a rotação sortear.
+
+### Limites honestos da Fase 4
+- **Assets procedurais, não artísticos.** Mapas, operadores e armas são geometria gerada em código (caixas, cilindros, esferas) com cores e luzes. São originais e funcionais, mas não têm a qualidade de modelos esculpidos, texturizados e animados por captura de movimento. O caminho para isso (glTF + rig único) está em `docs/ARCHITECTURE.md` e não muda o código de jogo.
+- **Animações procedurais**, não capturadas: são curvas calculadas (passada, IK das pernas, coice, recarga). Ficam convincentes de longe; de perto parecem um boneco articulado.
+- **Áudio sintetizado** (Web Audio), sem gravações. Não consegui ouvir no contêiner: conferi que os timbres são gerados sem erro, mas a mixagem precisa de um ouvido humano.
+- **Portas automáticas do Blackout Lab** ficaram como vãos abertos. Portas que abrem e fecham exigem estado de mapa sincronizado pelo servidor, e prefiro não entregar isso pela metade.
+- **Treinamento continua só no Neon District** (os alvos e o drone foram desenhados para ele). Os 5 mapas estão nas partidas online.
+- **Blackout Lab é escuro de propósito** (luz de emergência). As capturas vêm de renderização por software; o brilho final precisa ser conferido numa GPU de verdade.
+- **Escolha de mapa** é por rodízio; votação de mapa e mapas por modo ficam para a Fase 5 (ranqueado).
+
+## Fases 5–8 ⏳
+Competitivo (MMR Glicko-2, 15 patentes, temporadas, ranking) · Economia (VC, loja, inventário, Stripe Checkout + webhooks) · Sistemas sociais (amigos, clãs, missões, replays, kill cam) · Finalização (carga, segurança, Docker, CI, deploy).

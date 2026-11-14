@@ -9,6 +9,8 @@ import {
   RECONNECT_GRACE_MS,
   SNAPSHOT_EVERY,
   TICK_MS,
+  ANIM_FLAG,
+  isReloading,
   applyCommand,
   createCombatant,
   damageAt,
@@ -41,6 +43,8 @@ export interface MatchSeat {
   username: string;
   color: string;
   characterId: string | null;
+  /** Código do personagem (modelo e animações no cliente). */
+  character: string;
   loadout: WeaponStats[];
 }
 
@@ -196,7 +200,7 @@ export class Match {
       roundsToWin: this.roundsToWin,
       you: userId,
       yourTeam: me.team,
-      players: this.players.map((p) => ({ id: p.userId, username: p.username, team: p.team, color: p.color, loadout: p.loadout.map((w) => w.code), connected: !!p.conn && !p.abandoned })),
+      players: this.players.map((p) => ({ id: p.userId, username: p.username, team: p.team, color: p.color, character: p.character, loadout: p.loadout.map((w) => w.code), connected: !!p.conn && !p.abandoned })),
       lastSeq: me.lastReceived,
       tick: this.tick,
     };
@@ -333,7 +337,7 @@ export class Match {
       p.lastYaw = cmd.yaw;
       p.lastPitch = cmd.pitch;
     }
-    const out = applyCommand(p.c, cmd, { world: this.world, loadout: p.loadout, frozen: this.frozen });
+    const out = applyCommand(p.c, cmd, { world: this.world, loadout: p.loadout, frozen: this.frozen, zones: this.opts.map.zones });
     if (!out.shot) return;
     p.stats.shots++;
     const stats = out.shot.weapon;
@@ -365,7 +369,7 @@ export class Match {
         ends.push({ x: o.x + dir.x * t, y: o.y + dir.y * t, z: o.z + dir.z * t });
       }
     }
-    this.events.push({ k: "shot", by: p.userId, from: o, ends: ends.slice(0, 4).map(r3), cat: stats.category });
+    this.events.push({ k: "shot", by: p.userId, from: o, ends: ends.slice(0, 4).map(r3), cat: stats.category, w: stats.code });
     if (perTarget.size) p.stats.hits++;
 
     for (const [target, { dmg, head }] of perTarget) {
@@ -542,13 +546,19 @@ export class Match {
         .filter((o) => o !== p)
         .map((o) => {
           const m = o.c.move;
-          return [o.userId, r3n(m.pos.x), r3n(m.pos.y), r3n(m.pos.z), r3n(o.lastYaw), r3n(o.lastPitch), r3n(m.crouchBlend), o.c.alive ? 1 : 0, o.c.slot, o.team === p.team ? Math.max(0, Math.round(o.c.health)) : -1];
+          return [o.userId, r3n(m.pos.x), r3n(m.pos.y), r3n(m.pos.z), r3n(o.lastYaw), r3n(o.lastPitch), r3n(m.crouchBlend), o.c.alive ? 1 : 0, o.c.slot, o.team === p.team ? Math.max(0, Math.round(o.c.health)) : -1, animFlags(o.c)];
         });
       p.conn.send({ t: "snap", tick: this.tick, phase: this.phase, phaseEndsIn, round: this.round, score: [...this.score], you: this.selfWire(p), others, kd, ev: [...this.events, ...p.privateEvents] });
       p.privateEvents = [];
     }
     this.events = [];
   }
+}
+
+/** Estado visível de animação (pulo, corrida, recarga): não revela nada que o outro jogador não veria. */
+function animFlags(c: Combatant): number {
+  const ws = c.weapons[c.slot];
+  return (c.move.onGround ? ANIM_FLAG.onGround : 0) | (c.move.sprinting ? ANIM_FLAG.sprinting : 0) | (ws && isReloading(ws, c.seq * TICK_MS) ? ANIM_FLAG.reloading : 0);
 }
 
 const r3n = (n: number) => Math.round(n * 1000) / 1000;

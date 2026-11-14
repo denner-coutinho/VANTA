@@ -1,4 +1,18 @@
-import type { WeaponCategory } from "@vanta/shared";
+import type { MapTheme, WeaponCategory } from "@vanta/shared";
+
+/** Assinatura sonora por arma: cada uma soa diferente dentro da categoria (tom, corpo, cauda). */
+const WEAPON_VOICE: Record<string, { pitch: number; body: number; tail: number; crack?: boolean }> = {
+  VK7_LAMINA: { pitch: 1.0, body: 1.0, tail: 1.0 },
+  ARX9_PULSAR: { pitch: 0.78, body: 1.25, tail: 1.2 },
+  SPX_VESPA: { pitch: 1.3, body: 0.8, tail: 0.7 },
+  KR4_FAGULHA: { pitch: 1.1, body: 0.95, tail: 0.85 },
+  LR1_HORIZONTE: { pitch: 0.85, body: 1.3, tail: 1.6, crack: true },
+  MK2_AGULHA: { pitch: 1.15, body: 1.0, tail: 1.2, crack: true },
+  SG12_TROVAO: { pitch: 0.8, body: 1.3, tail: 1.3 },
+  HX3_MARTELO: { pitch: 1.1, body: 1.0, tail: 1.0 },
+  P9_FAISCA: { pitch: 1.15, body: 0.85, tail: 0.8 },
+  DX50_JUIZA: { pitch: 0.7, body: 1.35, tail: 1.3 },
+};
 
 /**
  * Áudio de combate sintetizado (Web Audio): disparos por categoria, recarga, impactos,
@@ -93,19 +107,22 @@ export class GameAudio {
     o.stop(t + dur + 0.02);
   }
 
-  shot(category: WeaponCategory, pos?: { x: number; y: number; z: number }) {
-    const p = {
+  shot(category: WeaponCategory, pos?: { x: number; y: number; z: number }, code?: string) {
+    const v = (code && WEAPON_VOICE[code]) || { pitch: 1, body: 1, tail: 1 };
+    const base = {
       ASSAULT_RIFLE: { body: 1400, dur: 0.16, thump: 90, gain: 0.9 },
       SMG: { body: 2200, dur: 0.1, thump: 120, gain: 0.7 },
       SNIPER: { body: 900, dur: 0.6, thump: 55, gain: 1.2 },
       SHOTGUN: { body: 700, dur: 0.38, thump: 60, gain: 1.1 },
       PISTOL: { body: 1800, dur: 0.12, thump: 110, gain: 0.75 },
     }[category];
+    const p = { body: base.body * v.pitch, dur: base.dur * v.body, thump: base.thump * v.pitch, gain: base.gain * Math.min(1.25, v.body) };
     this.burst({ dur: p.dur, gain: p.gain, filter: "lowpass", freq: p.body * 3, freqEnd: p.body * 0.4, pos });
+    if (v.crack) this.tone(3200 * v.pitch, 0.05, "square", p.gain * 0.25, 900, 0, pos); // estalo supersônico
     this.burst({ dur: 0.03, gain: p.gain * 0.8, filter: "highpass", freq: 3000, pos });
     this.tone(p.thump * 2, p.dur * 0.8, "sine", p.gain * 0.7, p.thump * 0.6, 0, pos);
     // Cauda/eco urbano.
-    this.burst({ dur: p.dur * 2.5, gain: p.gain * 0.12, filter: "bandpass", freq: 600, q: 0.6, delay: 0.06, pos });
+    this.burst({ dur: p.dur * 2.5 * v.tail * this.reverb, gain: p.gain * 0.12 * v.tail, filter: "bandpass", freq: 600, q: 0.6, delay: 0.06, pos });
   }
 
   dryFire() {
@@ -155,7 +172,72 @@ export class GameAudio {
   death() {
     this.tone(220, 0.9, "sine", 0.4, 55);
   }
+  /** Cauda de eco do ambiente: interiores ecoam mais, deserto aberto menos. */
+  private reverb = 1;
+  private ambience: AudioNode[] = [];
+
+  /** Som ambiente contínuo do mapa (sintetizado). */
+  startAmbience(theme: MapTheme) {
+    this.stopAmbience();
+    this.reverb = { neon: 1, desert: 0.7, frost: 0.9, lab: 1.6, orbital: 1.3 }[theme];
+    const ctx = this.ctx;
+    const bus = ctx.createGain();
+    bus.gain.value = 0.0001;
+    bus.gain.exponentialRampToValueAtTime(1, ctx.currentTime + 2);
+    bus.connect(this.master);
+    const loopNoise = (filter: BiquadFilterType, freq: number, q: number, gain: number, lfoHz = 0, lfoDepth = 0) => {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = filter;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.value = gain;
+      src.connect(f).connect(g).connect(bus);
+      src.start();
+      this.ambience.push(src);
+      if (lfoHz) {
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = lfoHz;
+        const lg = ctx.createGain();
+        lg.gain.value = lfoDepth;
+        lfo.connect(lg).connect(f.frequency);
+        lfo.start();
+        this.ambience.push(lfo);
+      }
+    };
+    const hum = (freq: number, gain: number, type: OscillatorType = "sine") => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.value = gain;
+      o.connect(g).connect(bus);
+      o.start();
+      this.ambience.push(o);
+    };
+    switch (theme) {
+      case "neon": loopNoise("lowpass", 220, 0.7, 0.05); loopNoise("bandpass", 1800, 0.5, 0.008, 0.07, 600); break; // cidade distante + chuva fina
+      case "desert": loopNoise("bandpass", 500, 0.6, 0.05, 0.11, 350); break; // vento
+      case "frost": loopNoise("highpass", 2500, 0.4, 0.012); loopNoise("bandpass", 380, 0.9, 0.05, 0.05, 250); break; // vento gelado
+      case "lab": hum(50, 0.025, "sawtooth"); hum(100, 0.012); loopNoise("lowpass", 160, 0.8, 0.03); break; // rede elétrica e ventilação
+      case "orbital": hum(42, 0.035); hum(63.5, 0.015); loopNoise("lowpass", 120, 0.6, 0.035, 0.03, 40); break; // reatores da estação
+    }
+    this.ambience.push(bus);
+  }
+
+  stopAmbience() {
+    for (const n of this.ambience) {
+      try { (n as AudioScheduledSourceNode).stop?.(); } catch { /* já parado */ }
+      n.disconnect();
+    }
+    this.ambience = [];
+  }
+
   dispose() {
+    this.stopAmbience();
     void this.ctx.close();
   }
 }

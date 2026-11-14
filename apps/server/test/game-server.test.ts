@@ -228,6 +228,24 @@ describe("servidor de jogo (WebSocket)", () => {
     clients.forEach((c) => c.close());
   });
 
+  it("rotação de mapas: partidas seguidas usam mapas diferentes, cada um com o personagem do jogador", async () => {
+    const seen: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const a = await registerToken();
+      const b = await registerToken();
+      const ca = await connect(a.token);
+      const cb = await connect(b.token);
+      ca.send({ t: "queue", mode: "1v1", loadout: [RIFLE] });
+      cb.send({ t: "queue", mode: "1v1", loadout: [RIFLE] });
+      const m = await ca.waitFor("match");
+      seen.push(m.info.map);
+      expect(m.info.players.every((p) => typeof p.character === "string" && p.character.length > 0)).toBe(true);
+      ca.close();
+      cb.close();
+    }
+    expect(new Set(seen).size).toBe(2);
+  });
+
   it("banimento derruba a conexão de jogo em segundos", async () => {
     const a = await registerToken();
     const c = await connect(a.token);

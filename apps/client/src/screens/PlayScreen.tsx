@@ -145,8 +145,8 @@ export function PlayScreen() {
           ) : (
             <>
               <div className="queue-info">
-                <span className="label">Partida casual · Neon District</span>
-                <span className="muted">Só jogadores reais: a partida começa quando a fila completa. O ranqueado chega na Fase 5.</span>
+                <span className="label">Partida casual · rotação de 5 mapas</span>
+                <span className="muted">Só jogadores reais: a partida começa quando a fila completa. O mapa segue a rotação: Neon District, Desert Protocol, Frost Base, Blackout Lab e Orbital Zero. O ranqueado chega na Fase 5.</span>
               </div>
               <Button onClick={search} disabled={status !== "online"} data-testid="find-match">Procurar partida</Button>
             </>

@@ -6,6 +6,7 @@ import type { PrismaClient } from "@vanta/db";
 import {
   GAME_PROTOCOL_VERSION,
   MAP_REGISTRY,
+  MAP_ROTATION,
   MODES,
   SERVER_TICK_RATE,
   clientMessageSchema,
@@ -21,8 +22,8 @@ export interface GameServerOptions {
   prisma: PrismaClient;
   jwtSecret: string;
   allowedOrigins: string[];
-  /** Mapa usado nas partidas (Fase 4 adiciona rotação de mapas). */
-  mapCode?: string;
+  /** Mapas da rotação (padrão: os 5). */
+  maps?: string[];
   log?: Pick<Console, "info" | "warn" | "error">;
   /** Em testes, o loop é avançado manualmente. */
   autoTick?: boolean;
@@ -37,6 +38,7 @@ interface Client {
   tokenVersion: number;
   color: string;
   characterId: string | null;
+  character: string;
   match: Match | null;
   queuedMode: QueueMode | null;
   msgWindowStart: number;
@@ -68,13 +70,16 @@ export class GameServer {
   private timer: NodeJS.Timeout | null = null;
   private recheckTimer: NodeJS.Timeout | null = null;
   private log: Pick<Console, "info" | "warn" | "error">;
-  private mapCode: string;
+  private rotation: string[];
+  private rotationIndex = 0;
   /** Promessas de persistência pendentes (testes aguardam). */
   readonly pendingSaves = new Set<Promise<unknown>>();
 
   constructor(private opts: GameServerOptions) {
     this.log = opts.log ?? console;
-    this.mapCode = opts.mapCode ?? "NEON_DISTRICT";
+    // Rotação de mapas: em ordem, um mapa por partida (opts.maps restringe, ex.: testes ou eventos).
+    this.rotation = (opts.maps ?? MAP_ROTATION).filter((c) => MAP_REGISTRY[c]);
+    if (!this.rotation.length) throw new Error("Nenhum mapa válido na rotação");
     this.verify = createVerifier({ key: opts.jwtSecret, algorithms: ["HS256"] }) as unknown as (t: string) => Record<string, unknown>;
     this.http = createServer((req, res) => {
       if (req.url === "/health") {
@@ -148,7 +153,7 @@ export class GameServer {
   }
 
   private onConnection(ws: WebSocket) {
-    const client: Client = { ws, userId: null, username: "", tokenVersion: 0, color: "#287BFF", characterId: null, match: null, queuedMode: null, msgWindowStart: Date.now(), msgCount: 0, helloTimer: null };
+    const client: Client = { ws, userId: null, username: "", tokenVersion: 0, color: "#287BFF", characterId: null, character: "RAVEN", match: null, queuedMode: null, msgWindowStart: Date.now(), msgCount: 0, helloTimer: null };
     client.helloTimer = setTimeout(() => ws.close(4001, "hello timeout"), HELLO_TIMEOUT_MS);
     ws.on("message", (data, isBinary) => {
       if (isBinary) return ws.close(4002, "binary not supported");
@@ -240,7 +245,7 @@ export class GameServer {
     }
     const user = await this.opts.prisma.user.findUnique({
       where: { id: String(payload.sub) },
-      select: { id: true, username: true, status: true, tokenVersion: true, profile: { select: { mainCharacter: { select: { id: true, primaryColor: true } } } } },
+      select: { id: true, username: true, status: true, tokenVersion: true, profile: { select: { mainCharacter: { select: { id: true, code: true, primaryColor: true } } } } },
     });
     if (!user || user.status !== "ACTIVE" || user.tokenVersion !== payload.tv) {
       this.send(c, { t: "error", code: "UNAUTHORIZED", message: "Sessão expirada ou conta indisponível.", fatal: true });
@@ -252,6 +257,7 @@ export class GameServer {
     c.tokenVersion = user.tokenVersion;
     c.color = user.profile?.mainCharacter?.primaryColor ?? "#287BFF";
     c.characterId = user.profile?.mainCharacter?.id ?? null;
+    c.character = user.profile?.mainCharacter?.code ?? "RAVEN";
 
     // Uma conexão por conta: a nova substitui a antiga (ex.: recarregou a página).
     const old = this.clients.get(user.id);
@@ -308,13 +314,14 @@ export class GameServer {
     while (q.length >= size) {
       const group = q.splice(0, size);
       // Fase 3: ordem de chegada. A Fase 5 balanceia os times por MMR (Glicko-2).
-      const seats = group.map<MatchSeat>((e) => ({ userId: e.client.userId!, username: e.client.username, color: e.client.color, characterId: e.client.characterId, loadout: e.loadout }));
+      const seats = group.map<MatchSeat>((e) => ({ userId: e.client.userId!, username: e.client.username, color: e.client.color, characterId: e.client.characterId, character: e.client.character, loadout: e.loadout }));
       const half = size / 2;
-      const map = MAP_REGISTRY[this.mapCode]!;
+      const mapCode = this.rotation[this.rotationIndex++ % this.rotation.length]!;
+      const map = MAP_REGISTRY[mapCode]!;
       const match = new Match({
         id: randomUUID(),
         mode,
-        mapCode: this.mapCode,
+        mapCode,
         map,
         teams: [seats.slice(0, half), seats.slice(half)],
         seed: randomInt(1, 2 ** 31),

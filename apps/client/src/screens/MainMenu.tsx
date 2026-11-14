@@ -83,7 +83,7 @@ export function MainMenu() {
 
   return (
     <div className="screen menu">
-      <MenuScene accent={character?.primaryColor ?? "#287BFF"} quality={settings.quality as GraphicsQuality} />
+      <MenuScene accent={character?.primaryColor ?? "#287BFF"} character={character?.code ?? "RAVEN"} quality={settings.quality as GraphicsQuality} />
       <div className="menu-shade" />
       <div className="scanlines" />
 
@@ -141,7 +141,7 @@ export function MainMenu() {
             <span className="label">{String(charIndex + 1).padStart(2, "0")} / {String(characters.length).padStart(2, "0")}</span>
             <button className="icon-btn panel cut cut-sm" aria-label="Próximo operador" onClick={() => void selectCharacter(1)}>›</button>
           </div>
-          <div className="operator-note">Modelo provisório procedural · modelos rigados na Fase 4</div>
+          <div className="operator-note">Modelo procedural animado · mesma hitbox para todos os operadores</div>
         </section>
       )}
 

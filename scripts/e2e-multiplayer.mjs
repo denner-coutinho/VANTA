@@ -6,9 +6,13 @@
 import { createRequire } from "node:module";
 import { execSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(`${execSync("npm root -g").toString().trim()}/playwright`);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const { MAP_REGISTRY, MapAnalyzer } = await import(pathToFileURL(`${root}/packages/shared/dist/index.js`).href);
 const BASE = process.env.E2E_BASE ?? "http://localhost:5173";
 const shotsIdx = process.argv.indexOf("--shots");
 const SHOTS = shotsIdx > 0 ? process.argv[shotsIdx + 1] : null;
@@ -46,14 +50,14 @@ const st = (p) => p.evaluate(() => window.__vantaMatch?.debugState() ?? null);
 const shot = async (p, name) => SHOTS && p.screenshot({ path: `${SHOTS}/${name}.png` });
 
 /** Anda até um ponto segurando W e re-mirando na direção do alvo. */
-async function walkTo(p, target, timeoutMs = 30000) {
+async function walkTo(p, target, timeoutMs = 30000, near = 0.6) {
   const deadline = Date.now() + timeoutMs;
   await p.keyboard.down("KeyW");
   try {
     while (Date.now() < deadline) {
       const s = await st(p);
       const d = Math.hypot(target.x - s.pos.x, target.z - s.pos.z);
-      if (d < 0.6) return s;
+      if (d < near) return s;
       await p.evaluate((t) => window.__vantaMatch.debugAimAt({ x: t.x, y: 1.62, z: t.z }), { x: target.x, z: target.z });
       await sleep(d < 2 ? 60 : 150);
     }
@@ -101,15 +105,23 @@ try {
   ok("round ao vivo: cada cliente vê o outro na posição sincronizada pelo servidor");
   await shot(A.page, "02-round-ao-vivo");
 
-  // Ambos andam até um ponto com linha de visão (calculado sobre a geometria do mapa).
-  await Promise.all([walkTo(A.page, { x: 4, z: -14 }), walkTo(B.page, { x: -4, z: 18 })]);
+  // Ambos andam até um ponto com linha de visão, por caminhos calculados sobre a geometria do mapa
+  // da partida (o mapa vem da rotação do servidor).
+  const map = MAP_REGISTRY[sa.map];
+  const an = new MapAnalyzer(map);
+  const nodes = an.explore(map.spawns.A[0]);
+  const cp = an.contactPoint(nodes);
+  const pathFor = (team) => (team === 0 ? MapAnalyzer.path(nodes, cp.key) : MapAnalyzer.path(nodes, cp.keyB).map((p) => ({ x: -p.x, y: p.y, z: -p.z })));
+  const startA = { ...sa.pos };
+  const walkPath = async (p, pts) => { for (const [i, pt] of pts.entries()) await walkTo(p, pt, 30000, i === pts.length - 1 ? 0.35 : 0.6); };
+  await Promise.all([walkPath(A.page, pathFor(sa.team)), walkPath(B.page, pathFor(sb.team))]);
   await sleep(600);
   sa = await st(A.page);
   sb = await st(B.page);
   assert(sa.predictedVsServer !== null && sa.predictedVsServer < 0.6, "predição de A divergiu do servidor", sa);
   const seen = sa.others[0].pos;
   assert(Math.hypot(seen.x - sb.pos.x, seen.z - sb.pos.z) < 1.2, "posição interpolada de B divergiu", { seen, real: sb.pos });
-  ok(`movimento com predição: A andou ${Math.hypot(sa.pos.x - 5, sa.pos.z + 24).toFixed(1)} m, erro predição × servidor ${sa.predictedVsServer.toFixed(3)} m`);
+  ok(`movimento com predição: A andou ${Math.hypot(sa.pos.x - startA.x, sa.pos.z - startA.z).toFixed(1)} m em ${map.name}, erro predição × servidor ${sa.predictedVsServer.toFixed(3)} m`);
   await shot(B.page, "03-b-ve-a");
 
   // A atira em B mirando onde VÊ B (interpolado) — o servidor compensa a latência.
