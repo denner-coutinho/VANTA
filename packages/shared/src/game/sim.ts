@@ -1,6 +1,7 @@
 import { CollisionWorld } from "./collision.js";
 import { MOVE, TICK_DT, createPlayerState, eyeHeight, stepPlayer, type PlayerState } from "./movement.js";
 import { clamp, DEG, viewDir, type Vec3 } from "./math.js";
+import type { MapZone } from "./maps/types.js";
 import {
   beginSwitchTo,
   createWeaponState,
@@ -85,6 +86,17 @@ export interface CommandContext {
   loadout: WeaponStats[];
   /** Congelado (início de round): não anda nem atira, só olha. */
   frozen: boolean;
+  /** Zonas do mapa (gravidade reduzida). */
+  zones?: MapZone[];
+}
+
+export function gravityAt(zones: MapZone[] | undefined, p: Vec3): number {
+  if (!zones) return 1;
+  for (const z of zones) {
+    const b = z.box;
+    if (p.x >= b.min.x && p.x <= b.max.x && p.y >= b.min.y && p.y <= b.max.y && p.z >= b.min.z && p.z <= b.max.z) return z.gravityScale;
+  }
+  return 1;
 }
 
 export interface CommandOutcome {
@@ -156,6 +168,7 @@ export function applyCommand(c: Combatant, cmd: PlayerCommand, ctx: CommandConte
     },
     ctx.world,
     TICK_DT,
+    gravityAt(ctx.zones, c.move.pos),
   );
 
   for (let i = 0; i < c.weapons.length; i++) updateWeapon(loadout[i]!, c.weapons[i]!, now, TICK_MS);

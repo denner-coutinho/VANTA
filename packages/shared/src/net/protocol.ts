@@ -109,6 +109,7 @@ export interface MatchPlayerInfo {
   username: string;
   team: 0 | 1;
   color: string;
+  character: string;
   loadout: string[];
   connected: boolean;
 }
@@ -143,10 +144,14 @@ export interface WireSelf {
 }
 
 /** Outro jogador: [id, x, y, z, yaw, pitch, crouchBlend, vivo(0/1), slot, vida (só aliados, senão -1)]. */
-export type WireOther = [string, number, number, number, number, number, number, 0 | 1, number, number];
+/** Bits de estado de animação em `WireOther[10]`. */
+export const ANIM_FLAG = { onGround: 1, sprinting: 2, reloading: 4 } as const;
+
+/** [id, x, y, z, yaw, pitch, crouchBlend, alive, slot, hp do aliado (-1 = oculto), flags de animação]. */
+export type WireOther = [string, number, number, number, number, number, number, 0 | 1, number, number, number];
 
 export type MatchEventWire =
-  | { k: "shot"; by: string; from: Vec3; ends: Vec3[]; cat: string }
+  | { k: "shot"; by: string; from: Vec3; ends: Vec3[]; cat: string; w: string }
   | { k: "hit"; by: string; target: string; dmg: number; head: boolean; kill: boolean }
   | { k: "kill"; killer: string; victim: string; weapon: string; head: boolean }
   | { k: "round_start"; round: number }

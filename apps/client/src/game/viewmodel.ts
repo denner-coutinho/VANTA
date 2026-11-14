@@ -7,6 +7,12 @@ import { CATEGORY_TUNING, type WeaponStats } from "@vanta/shared";
  * (balanço ao andar, corrida, mira, disparo com recuo físico, recarga e troca de arma).
  * Renderizada numa cena própria por cima do mundo, para não atravessar paredes.
  */
+/** Cor de acabamento por arma (complementa a cor de destaque do time). */
+const WEAPON_TRIM: Record<string, string> = {
+  VK7_LAMINA: "#5C9BFF", ARX9_PULSAR: "#FF9A2E", SPX_VESPA: "#FFE14A", KR4_FAGULHA: "#3FE08F", LR1_HORIZONTE: "#C9B48A",
+  MK2_AGULHA: "#9AA6BF", SG12_TROVAO: "#7A4A2E", HX3_MARTELO: "#FF3B4E", P9_FAISCA: "#2ED3E6", DX50_JUIZA: "#D4AF37",
+};
+
 export class ViewModel {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(62, 1, 0.01, 10);
@@ -171,6 +177,52 @@ export class ViewModel {
         sightY = 0.098;
       }
     }
+    // Variações por arma: cada modelo do mesmo tipo tem silhueta própria.
+    const secondary = new THREE.MeshStandardMaterial({ color: WEAPON_TRIM[w.code] ?? "#8C96A8", metalness: 0.5, roughness: 0.45 });
+    this.mats.push(secondary);
+    switch (w.code) {
+      case "ARX9_PULSAR": // rifle pesado: guarda-mão largo, carregador curvo duplo, freio de boca
+        b(0.064, 0.07, 0.22, secondary, 0, 0.015, -0.27);
+        cyl(0.02, 0.06, metal, 0, 0.03, -0.5);
+        b(0.034, 0.16, 0.07, metal, 0, -0.1, -0.11).rotation.x = 0.3;
+        break;
+      case "VK7_LAMINA":
+        b(0.008, 0.03, 0.12, secondary, 0.03, 0.02, -0.26); // trilho lateral
+        break;
+      case "SPX_VESPA": // compacta, carregador longo, sem coronha
+        g.children.filter((c) => c.position.z > 0.12).forEach((c) => (c.visible = false));
+        b(0.028, 0.2, 0.035, secondary, 0, -0.11, -0.06);
+        b(0.012, 0.012, 0.12, metal, 0, -0.03, 0.12);
+        break;
+      case "KR4_FAGULHA":
+        b(0.05, 0.03, 0.12, secondary, 0, -0.03, -0.2); // empunhadura frontal
+        break;
+      case "MK2_AGULHA": // semiautomática: cano mais curto, mira menor, carregador de caixa
+        g.children.forEach((c) => { if (c.position.z < -0.4) c.scale.z = 0.7; });
+        b(0.04, 0.11, 0.06, secondary, 0, -0.07, -0.06);
+        break;
+      case "LR1_HORIZONTE":
+        cyl(0.03, 0.05, secondary, 0, 0.1, -0.01); // ocular grande
+        b(0.012, 0.012, 0.05, metal, 0.035, 0.03, 0.02); // ferrolho
+        break;
+      case "HX3_MARTELO": // semiautomática: carregador de caixa, sem tubo de bombeamento
+        b(0.04, 0.12, 0.06, secondary, 0, -0.08, -0.08);
+        cyl(0.022, 0.05, metal, 0, 0.04, -0.6);
+        break;
+      case "SG12_TROVAO":
+        b(0.056, 0.05, 0.12, secondary, 0, -0.005, -0.36); // telha da bomba
+        break;
+      case "DX50_JUIZA": // pistola pesada: cano longo e compensador
+        b(0.04, 0.046, 0.26, secondary, 0, 0.032, -0.08);
+        b(0.042, 0.03, 0.04, metal, 0, 0.035, -0.22);
+        break;
+      case "P9_FAISCA":
+        b(0.02, 0.02, 0.03, secondary, 0, -0.005, -0.12); // lanterna
+        break;
+    }
+    if (w.code === "DX50_JUIZA") muzzleZ -= 0.08;
+    if (w.code === "ARX9_PULSAR") muzzleZ -= 0.04;
+
     // Mãos/luvas segurando.
     b(0.05, 0.05, 0.1, glove, 0.0, -0.06, 0.05).rotation.x = -0.4;
     if (w.category !== "PISTOL") b(0.05, 0.045, 0.1, glove, -0.01, -0.025, -0.25);

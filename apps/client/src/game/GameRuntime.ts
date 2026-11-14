@@ -177,8 +177,10 @@ export class GameRuntime {
     this.scene.background = new THREE.Color(atm.sky);
     this.scene.fog = new THREE.FogExp2(atm.fog, atm.fogDensity);
     this.scene.add(new THREE.HemisphereLight(atm.ambient, "#2a3048", 2.6));
-    const moon = new THREE.DirectionalLight(0xb8c8ff, 1.8);
-    moon.position.set(-20, 40, -10);
+    const sun = atm.sun;
+    const moon = new THREE.DirectionalLight(sun?.color ?? 0xb8c8ff, sun ? sun.intensity : atm.theme === "lab" ? 0.25 : 1.8);
+    if (sun) moon.position.set(sun.dir.x * 50, sun.dir.y * 50, sun.dir.z * 50);
+    else moon.position.set(-20, 40, -10);
     moon.castShadow = q.shadows;
     moon.shadow.mapSize.set(2048, 2048);
     const sc = moon.shadow.camera;
@@ -236,6 +238,7 @@ export class GameRuntime {
     this.composer.addPass(new OutputPass());
 
     this.audio = new GameAudio(settings.volume);
+    this.audio.startAmbience(mapDef.atmosphere.theme);
     this.input = new InputManager(this.renderer.domElement, (locked) => {
       this.paused = !locked;
       if (locked) this.audio.resume();
@@ -392,13 +395,14 @@ export class GameRuntime {
     }
 
     const aiming = inp.aim && this.canAim();
+    const jumpTap = inp.consume("jump"); // toque rápido entre ticks também pula
     this.prevPos = { ...this.player.pos };
     stepPlayer(
       this.player,
       {
         forward: (inp.isDown("forward") ? 1 : 0) - (inp.isDown("back") ? 1 : 0),
         right: (inp.isDown("right") ? 1 : 0) - (inp.isDown("left") ? 1 : 0),
-        jump: inp.isDown("jump"),
+        jump: inp.isDown("jump") || jumpTap,
         crouch: inp.isDown("crouch"),
         sprint: inp.isDown("sprint"),
         aiming,
@@ -467,7 +471,7 @@ export class GameRuntime {
       sprinting: this.player.sprinting,
     });
     this.stats.shots++;
-    this.audio.shot(stats.category);
+    this.audio.shot(stats.category, undefined, stats.code);
     this.vm.onShot(stats.recoil);
     this.pitch = clamp(this.pitch + shot.recoilPitch, -89 * DEG, 89 * DEG);
     this.yaw += shot.recoilYaw;
@@ -612,6 +616,7 @@ export class GameRuntime {
     this.audio.setListener(x, eyeY, z, f.x, f.y, f.z);
 
     this.fx.update(dt);
+    this.map.update(dt);
     this.terminalScreen.rotation.y = Math.atan2(x - this.terminalScreen.parent!.position.x, z - this.terminalScreen.parent!.position.z);
     const speed = Math.hypot(p.vel.x, p.vel.z);
     const reloadP = ws.reloadEndsAt !== null ? 1 - (ws.reloadEndsAt - this.simTimeMs) / stats.reloadMs : null;

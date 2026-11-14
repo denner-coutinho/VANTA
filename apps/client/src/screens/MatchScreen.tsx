@@ -290,7 +290,7 @@ export function MatchScreen() {
             <div className="scoreboard panel cut" data-testid="scoreboard">
               {result && (
                 <div className={`result-head ${result.winner === myTeam ? "win" : result.winner === null ? "" : "loss"}`}>
-                  <span className="label">{MODES[info.mode].label} · Neon District{result.reason === "forfeit" ? " · W.O." : ""}</span>
+                  <span className="label">{MODES[info.mode].label} · {MAP_REGISTRY[info.map]?.name ?? info.map}{result.reason === "forfeit" ? " · W.O." : ""}</span>
                   <h1 data-testid="match-result">{result.winner === null ? "Empate" : result.winner === myTeam ? "Vitória" : "Derrota"}</h1>
                   <strong>{result.score[myTeam]} × {result.score[enemyTeam]}</strong>
                 </div>

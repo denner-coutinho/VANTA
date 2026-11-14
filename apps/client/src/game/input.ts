@@ -26,6 +26,7 @@ export class InputManager {
   aim = false;
   locked = false;
   private wheel = 0;
+  private fireTap = false;
 
   constructor(private readonly el: HTMLElement, private readonly onLockChange: (locked: boolean) => void) {
     document.addEventListener("keydown", this.onKeyDown);
@@ -54,6 +55,13 @@ export class InputManager {
     const hit = KEYBINDS[a].some((k) => this.pressedOnce.has(k));
     KEYBINDS[a].forEach((k) => this.pressedOnce.delete(k));
     return hit;
+  }
+
+  /** Clique rápido entre dois ticks (FPS baixo) ainda conta como um disparo. */
+  consumeFireTap() {
+    const t = this.fireTap;
+    this.fireTap = false;
+    return t;
   }
 
   consumeWheel() {
@@ -86,7 +94,10 @@ export class InputManager {
   };
   private onMouseDown = (e: MouseEvent) => {
     if (!this.locked) return;
-    if (e.button === 0) this.fire = true;
+    if (e.button === 0) {
+      this.fire = true;
+      this.fireTap = true;
+    }
     if (e.button === 2) this.aim = true;
   };
   private onMouseUp = (e: MouseEvent) => {
@@ -107,6 +118,7 @@ export class InputManager {
     this.down.clear();
     this.pressedOnce.clear();
     this.fire = false;
+    this.fireTap = false;
     this.aim = false;
     this.mouseDX = this.mouseDY = 0;
   };

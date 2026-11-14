@@ -77,7 +77,7 @@ const neon: NeonProp[] = [...neonHalf, ...neonHalf.map((n) => ({ ...n, pos: { x:
 const lights: MapLight[] = [...lightsHalf, ...lightsHalf.map((l) => ({ ...l, pos: { x: -l.pos.x, y: l.pos.y, z: -l.pos.z } }))];
 
 // ── Elementos centrais (já simétricos) ──
-solids.push({ kind: "cover", box: aabbFromCenter(0, 0.7, 0, 2.4, 1.4, 2.4), color: "#2a3348" });          // monumento
+solids.push({ kind: "cover", box: aabbFromCenter(0, 0.9, 0, 3.2, 1.8, 3.2), color: "#2a3348" });          // monumento (bloqueia a visão base-a-base)
 solids.push({ kind: "cover", box: aabbFromCenter(0, 2.2, 0, 0.6, 1.6, 0.6), color: "#323b50" });          // obelisco
 solids.push({ kind: "crate", box: aabbFromCenter(-6, 0.6, 3, 1.4, 1.2, 1.4) });
 solids.push({ kind: "crate", box: aabbFromCenter(6, 0.6, -3, 1.4, 1.2, 1.4) });
@@ -119,5 +119,5 @@ export const NEON_DISTRICT: MapDefinition = {
     ],
     droneSpawns: [{ x: 0, y: 4.5, z: 4 }],
   },
-  atmosphere: { sky: "#06070d", fog: "#0a0c16", fogDensity: 0.018, ambient: "#5a6a9a", groundColor: "#0c0f18" },
+  atmosphere: { sky: "#06070d", fog: "#0a0c16", fogDensity: 0.018, ambient: "#5a6a9a", groundColor: "#0c0f18", theme: "neon" },
 };

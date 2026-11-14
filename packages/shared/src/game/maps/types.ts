@@ -10,6 +10,11 @@ export interface NeonProp { pos: Vec3; size: [number, number]; rotY: number; col
 
 export interface MapLight { pos: Vec3; color: string; intensity: number; distance: number }
 
+export type MapTheme = "neon" | "desert" | "frost" | "lab" | "orbital";
+
+/** Zona especial: hoje, gravidade reduzida (Orbital Zero). */
+export interface MapZone { box: AABB; gravityScale: number; label: string }
+
 export interface MapDefinition {
   code: string;
   name: string;
@@ -21,5 +26,7 @@ export interface MapDefinition {
   /** Yaw inicial de cada time (olhando para o centro). */
   spawnYaw: { A: number; B: number };
   training: { targets: Array<{ pos: Vec3; rail?: { axis: "x" | "z"; amplitude: number; speed: number } }>; droneSpawns: Vec3[] };
-  atmosphere: { sky: string; fog: string; fogDensity: number; ambient: string; groundColor: string };
+  atmosphere: { sky: string; fog: string; fogDensity: number; ambient: string; groundColor: string; theme: MapTheme; sun?: { color: string; intensity: number; dir: Vec3 } };
+  zones?: MapZone[];
+  description?: string;
 }
