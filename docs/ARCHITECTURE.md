@@ -91,3 +91,17 @@ A simulação fica em `packages/shared/src/game` e não depende de navegador nem
 - `maps/`: definição de mapa como dados (sólidos, neon, luzes, spawns, alvos). O cliente monta o visual a partir dela; o servidor usará só os sólidos.
 
 No cliente (`apps/client/src/game`), `GameRuntime` acumula o tempo real, roda N ticks de simulação e renderiza interpolando entre os dois últimos estados. A mira é aplicada por quadro (sem atraso de tick). A arma em primeira pessoa é desenhada numa cena separada depois de limpar o depth buffer, para não atravessar paredes.
+
+## Multiplayer (Fase 3)
+
+```
+navegador ──HTTP /api──▶ API Fastify (:4000) ──▶ PostgreSQL / Redis
+    │
+    └──WebSocket /game──▶ servidor de jogo (:4100, processo separado) ──▶ PostgreSQL (resultado das partidas)
+```
+
+- **Protocolo** (`packages/shared/src/net/protocol.ts`): JSON validado com zod. O cliente envia só `hello` (JWT), `queue`, `ready`, `cmd` (comandos compactos `[seq, botões, yaw, pitch, viewTick, slot]`), `ping` e `leave_match`.
+- **Comandos** (`packages/shared/src/game/sim.ts`): `applyCommand` aplica um comando de um tick a um combatente (movimento, troca, recarga, disparo). Roda igual no servidor (autoritativo) e no cliente (predição). O tempo de um comando é `seq × 16,67 ms`, então a reaplicação é determinística.
+- **Servidor** (`apps/server/src/game/match.ts`): por tick, consome no máximo 1 comando por jogador (2 se houver fila acumulada) e só se houver crédito (1 por tick, teto de 10): não dá para andar mais rápido mandando mais comandos. Disparos são resolvidos com raycast contra as hitboxes **na posição em que o atirador via os alvos** (histórico de 64 ticks, rebobinamento máximo de 250 ms). Snapshots a 30 Hz: estado completo do próprio jogador (para reconciliar), posição/mira dos outros, placar e eventos.
+- **Cliente** (`apps/client/src/game/OnlineRuntime.ts`): prevê o próprio jogador, guarda os comandos não confirmados, e a cada snapshot volta ao estado do servidor e reaplica o resto. Pequenas diferenças são suavizadas na câmera. Os outros jogadores são desenhados 100 ms no passado, interpolando entre snapshots.
+- **Reconexão**: o servidor mantém a vaga por 60 s; ao voltar, envia a partida e o último `seq` aceito, e o cliente continua dele.

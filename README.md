@@ -33,7 +33,7 @@ docker compose up -d                  # PostgreSQL, Redis e Mailpit (caixa de e-
 pnpm build                            # compila shared e db (gera o Prisma Client)
 pnpm db:deploy                        # aplica as migrations
 pnpm db:seed                          # patentes, personagens, armas, mapas, pacotes de VC, missões
-pnpm dev                              # API em :4000 e cliente em http://localhost:5173
+pnpm dev                              # API em :4000, servidor de jogo em :4100 (ws /game) e cliente em http://localhost:5173
 ```
 
 Sem `SMTP_HOST`, os e-mails (verificação, recuperação de senha) aparecem no log do servidor.
@@ -54,6 +54,7 @@ createdb vanta_test                   # uma vez (ou: docker compose exec postgre
 pnpm test                             # unitários + integração (API contra PostgreSQL/Redis reais)
 node scripts/e2e-smoke.mjs            # ponta a ponta no navegador (com `pnpm dev` rodando)
 node scripts/e2e-training.mjs         # Fase 2: joga o treinamento (tiro, recarga, troca, pausa, arsenal)
+node scripts/e2e-multiplayer.mjs      # Fase 3: dois navegadores jogam 1v1 (fila, tiro, reconexão, W.O.)
 ```
 
 O teste E2E precisa do Playwright: `npm i -g playwright && npx playwright install chromium`.

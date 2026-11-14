@@ -10,6 +10,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": { target: process.env.VITE_API_PROXY ?? "http://localhost:4000", rewrite: (p: string) => p.replace(/^\/api/, "") },
+      // Servidor de jogo (WebSocket).
+      "/game": { target: process.env.VITE_GAME_PROXY ?? "ws://localhost:4100", ws: true },
     },
   },
   build: {
