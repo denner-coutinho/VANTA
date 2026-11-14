@@ -148,7 +148,10 @@ describe("autenticação e sessão", () => {
     const { json, body } = await register();
     const me = await ctx.app.inject({ method: "GET", url: "/me", headers: { authorization: `Bearer ${json.accessToken}` } });
     expect(me.statusCode).toBe(200);
-    expect(me.json()).toMatchObject({ user: { username: body.username }, profile: { level: 1, totalXp: 0 }, wallet: { balance: 0, currency: "VC" }, ranked: null });
+    expect(me.json()).toMatchObject({ user: { username: body.username }, profile: { level: 1, totalXp: 0 }, wallet: { balance: 0, currency: "VC" } });
+    // Com temporada em andamento, a conta nova aparece em classificação e sem pontos; sem temporada, `ranked` é null.
+    const ranked = me.json().ranked;
+    expect(ranked === null || (ranked.points === 0 && ranked.placementMatchesLeft > 0)).toBe(true);
   });
 
   it("rejeita token assinado com outro segredo ou com algoritmo 'none'", async () => {

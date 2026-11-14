@@ -18,7 +18,7 @@ interface Season { name: string; endsAt: string }
 /** Itens do menu. `phase` indica quando a funcionalidade entra no roadmap (não há botão falso). */
 const NAV: Array<{ key: string; label: string; phase?: number; hint: string }> = [
   { key: "play", label: "Jogar", hint: "1v1 · 2v2 · 3v3 · treino" },
-  { key: "ranked", label: "Ranqueado", phase: 5, hint: "Matchmaking por MMR e 15 patentes" },
+  { key: "ranked", label: "Ranqueado", hint: "Patentes, temporada e ranking" },
   { key: "rooms", label: "Salas", phase: 3, hint: "Salas personalizadas com código" },
   { key: "store", label: "Loja", phase: 6, hint: "Skins e cosméticos com VANTA COINS" },
   { key: "inventory", label: "Inventário", phase: 6, hint: "Equipar itens adquiridos" },
@@ -59,12 +59,15 @@ export function MainMenu() {
   const character = characters[charIndex];
   const points = me?.ranked?.points ?? 0;
   const rp = useMemo(() => rankProgress(points), [points]);
+  // A patente só aparece depois das partidas de classificação.
+  const placed = !!me?.ranked && me.ranked.placementMatchesLeft === 0;
 
   if (!me) return null;
 
   function onNav(key: string, phase?: number) {
     if (key === "profile") return setPanel("profile");
     if (key === "play") return navigate("/jogar");
+    if (key === "ranked") return navigate("/ranqueado");
     if (phase) {
       uiSound.error();
       toast(`Fase ${phase} do roadmap`, "Este modo ainda está em desenvolvimento e será liberado quando for testado de ponta a ponta.");
@@ -100,10 +103,10 @@ export function MainMenu() {
             <div className="xp"><div style={{ width: `${xpPct}%` }} /></div>
           </div>
           <button className="player-chip panel cut cut-sm" onClick={() => setPanel("profile")} onMouseEnter={() => uiSound.hover()}>
-            <RankEmblem order={rp.rank.order} size={34} />
+            {placed ? <RankEmblem order={rp.rank.order} size={34} /> : <div className="placement-badge sm">?</div>}
             <div>
               <strong>{me.user.username}</strong>
-              <span className="label" style={{ color: rp.rank.color }}>{me.ranked ? rp.rank.name : "Sem patente"}</span>
+              <span className="label" style={placed ? { color: rp.rank.color } : undefined}>{placed ? rp.rank.name : "Sem patente"}</span>
             </div>
           </button>
           <button className="icon-btn panel cut cut-sm" aria-label="Configurações" onClick={() => setPanel("settings")} onMouseEnter={() => uiSound.hover()}>
@@ -156,14 +159,24 @@ export function MainMenu() {
           ) : (
             <span className="muted">Pré-temporada. O ranqueado abre com a Temporada 1.</span>
           )}
-          <div className="rank-row">
-            <RankEmblem order={rp.rank.order} size={44} />
-            <div style={{ flex: 1 }}>
-              <strong style={{ color: rp.rank.color }}>{rp.rank.name}</strong>
-              <div className="xp"><div style={{ width: `${rp.progress * 100}%`, background: rp.rank.color }} /></div>
-              <span className="muted">{points} PP {rp.next ? `· próxima: ${rp.next.name} (${rp.next.minPoints} PP)` : ""}</span>
+          {placed ? (
+            <div className="rank-row" data-testid="menu-rank">
+              <RankEmblem order={rp.rank.order} size={44} />
+              <div style={{ flex: 1 }}>
+                <strong style={{ color: rp.rank.color }}>{rp.rank.name}</strong>
+                <div className="xp"><div style={{ width: `${rp.progress * 100}%`, background: rp.rank.color }} /></div>
+                <span className="muted">{points} PP {rp.next ? `· próxima: ${rp.next.name} (${rp.next.minPoints} PP)` : ""}</span>
+              </div>
             </div>
-          </div>
+          ) : me.ranked ? (
+            <div className="rank-row" data-testid="menu-placement">
+              <div className="placement-badge">?</div>
+              <div style={{ flex: 1 }}>
+                <strong>Em classificação</strong>
+                <span className="muted" style={{ display: "block" }}>Faltam {me.ranked.placementMatchesLeft} partidas ranqueadas para revelar sua patente.</span>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="panel cut side-block">

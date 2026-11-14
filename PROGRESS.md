@@ -124,5 +124,40 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **Blackout Lab é escuro de propósito** (luz de emergência). As capturas vêm de renderização por software; o brilho final precisa ser conferido numa GPU de verdade.
 - **Escolha de mapa** é por rodízio; votação de mapa e mapas por modo ficam para a Fase 5 (ranqueado).
 
-## Fases 5–8 ⏳
-Competitivo (MMR Glicko-2, 15 patentes, temporadas, ranking) · Economia (VC, loja, inventário, Stripe Checkout + webhooks) · Sistemas sociais (amigos, clãs, missões, replays, kill cam) · Finalização (carga, segurança, Docker, CI, deploy).
+## Fase 5 — Competitivo ✅ (14/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **MMR oculto com Glicko-2** (rating, desvio e volatilidade por jogador, modo e temporada). Em equipe, cada jogador é avaliado contra a média do time adversário | ✅ | `packages/shared/src/ranked.ts` + teste com o exemplo numérico do artigo do Glickman |
+| **Pontos de Patente (PP)** visíveis, que convergem para o MMR: quem está abaixo do nível real ganha mais e perde menos | ✅ | `ranked.test.ts` (17 testes) |
+| **5 partidas de classificação** por modo; a patente fica oculta até terminar (API, menu, resultado e ranking) | ✅ | Testes de API + E2E |
+| Bônus pequeno por sequência de vitórias (a partir da 3ª) e por MVP | ✅ | Testes |
+| **Abandono**: derrota com penalidade extra, o time abandonado perde menos, e a fila ranqueada bloqueia por 5, 15 ou 60 min (calculado no servidor a partir do banco, nas últimas 24 h) | ✅ | Testes + E2E (tela bloqueia e o servidor recusa pedido forçado) |
+| **Fila ranqueada separada da casual**, por modo. A faixa de MMR aceita começa em ±100 e abre 25 por segundo de espera (teto ±800) | ✅ | `ranked.test.ts` do servidor (janela de MMR) |
+| **Equipes balanceadas por MMR** em 2v2 e 3v3 (menor diferença de média entre os times) | ✅ | Teste de 2v2 com MMRs desiguais |
+| Resultado ranqueado **calculado e gravado só pelo servidor**, na mesma transação da partida; o cliente só exibe | ✅ | Testes de persistência + E2E compara tela × banco |
+| Partida casual não mexe em PP nem em MMR | ✅ | Teste |
+| **Temporadas**: encerrar (grava o top 100 por modo), iniciar a próxima com reinício parcial (MMR puxado para a média, parte dos PP mantida) e nova classificação | ✅ | Testes da API de administração (com auditoria) |
+| **Ranking da temporada** por modo (só jogadores com patente revelada) com a posição do próprio jogador | ✅ | Testes + E2E |
+| Tela **Ranqueado**: patente e progresso por modo, classificação, estatísticas, histórico com PP, ranking e as 15 patentes | ✅ | Capturas 27 e 31 |
+| Tela **Jogar** com escolha Casual ou Ranqueado; resultado da partida mostra PP ganhos ou perdidos, promoção e queda | ✅ | Capturas 28–30 |
+| **MMR nunca sai do servidor** (nenhuma rota ou mensagem o expõe) | ✅ | Teste de API + E2E |
+
+**Testes:** 67 no servidor (14 novos de ranqueado), 74 no shared (17 novos), 11 no cliente + E2E das Fases 1–4 + **E2E Fase 5 com quatro navegadores reais em duas ranqueadas 1v1** (`scripts/e2e-ranked.mjs`).
+
+### Limites honestos da Fase 5
+- **O E2E termina as partidas por abandono (W.O.)**, não jogando até o fim: uma ranqueada completa leva vários minutos no renderizador por software. O combate em si já é coberto pelos E2E das Fases 3 e 4. Para testar patente revelada e ganho de PP sem jogar 5 partidas por conta, o E2E ajusta o andamento da classificação de duas contas de teste direto no banco de desenvolvimento (está marcado como fixture no script).
+- **Dois E2E antigos falharam uma vez e passaram na repetição** durante esta fase: o de multiplayer (placar lido como 0 × 0 logo após a reconexão) e o de treino (andou 1,44 m onde o teste exige 1,5 m). Os dois dependem de tempo no renderizador por software; não achei erro de código, mas a leitura do placar após reconectar merece ser observada numa máquina com GPU.
+- **W.O. sem nenhuma ação não dá MVP** (nem o bônus de MVP), para não premiar partida que não foi jogada. A vitória e os pontos normais continuam valendo.
+- **Sem população, a fila demora.** Não há bots: com poucos jogadores, a faixa de MMR abre até ±800 e mesmo assim pode não achar partida. É o comportamento correto, mas o lançamento precisa de gente online.
+- **Fila em memória**, em um único processo do servidor de jogo. Para vários servidores, a fila precisa ir para o Redis (previsto na Fase 8).
+- **Sem detecção de combinação de resultado** (duas contas se revezando em derrotas) nem de smurf. Entra com o anticheat e a moderação.
+- **Recompensas de fim de temporada** dependem da economia (Fase 6). Hoje o encerramento só registra o ranking.
+- **Sem painel de administração**: iniciar e encerrar temporada é por rota protegida (`POST /admin/ranked/seasons/start` e `/close`, papel ADMIN). A troca não é automática na data final; a temporada vencida para de valer pontos e alguém precisa iniciar a próxima.
+- **Em produção a Temporada 1 nasce inativa** para você decidir a data de início. Em desenvolvimento o seed já a ativa.
+- **Sem grupos (duo/trio) na fila**: todos entram sozinhos. Grupos chegam com amigos, na Fase 7.
+- **Votação de mapa** continua fora: o mapa segue o rodízio também no ranqueado.
+- A partir desta fase o desenvolvimento passou a ser feito com o modelo Claude Fable 5.2 (as Fases 1–4 foram feitas com o Claude Opus). Isso é só a ferramenta de desenvolvimento: nenhum conteúdo do jogo usa IA em tempo de execução.
+
+## Fases 6–8 ⏳
+Economia (VC, loja, inventário, Stripe Checkout + webhooks) · Sistemas sociais (amigos, clãs, missões, replays, kill cam) · Finalização (carga, segurança, Docker, CI, deploy).

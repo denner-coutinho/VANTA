@@ -92,6 +92,7 @@ export interface MatchResult {
   matchId: string;
   mode: QueueMode;
   mapCode: string;
+  ranked: boolean;
   winner: 0 | 1 | null;
   score: [number, number];
   reason: "score" | "forfeit";
@@ -109,6 +110,8 @@ export interface MatchOptions {
   map: MapDefinition;
   teams: [MatchSeat[], MatchSeat[]];
   seed: number;
+  /** Partida ranqueada (o servidor de jogo aplica MMR e pontos ao gravar). */
+  ranked?: boolean;
   onEnd: (r: MatchResult) => void;
   /** Relógio injetável (testes). */
   now?: () => number;
@@ -196,6 +199,7 @@ export class Match {
     return {
       matchId: this.id,
       mode: this.mode,
+      ranked: !!this.opts.ranked,
       map: this.opts.mapCode,
       roundsToWin: this.roundsToWin,
       you: userId,
@@ -489,6 +493,7 @@ export class Match {
       matchId: this.id,
       mode: this.mode,
       mapCode: this.opts.mapCode,
+      ranked: !!this.opts.ranked,
       winner,
       score: [...this.score],
       reason,
@@ -503,7 +508,9 @@ export class Match {
   private finalStats(winner: 0 | 1 | null): PlayerMatchStats[] {
     const score = (p: MatchPlayer) => p.stats.kills * 100 + p.stats.assists * 40 + p.stats.damage * 0.5 + p.stats.headshots * 20;
     const eligible = this.players.filter((p) => !p.abandoned && (winner === null || p.team === winner));
-    const mvp = eligible.sort((a, b) => score(b) - score(a))[0];
+    // Sem nenhuma contribuição (ex.: W.O. antes do primeiro tiro) não há MVP — e portanto não há bônus ranqueado de MVP.
+    const best = eligible.sort((a, b) => score(b) - score(a))[0];
+    const mvp = best && score(best) > 0 ? best : undefined;
     return this.players.map((p) => ({
       id: p.userId,
       username: p.username,

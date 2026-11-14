@@ -1,4 +1,4 @@
-import { GAME_PROTOCOL_VERSION, type ClientMessage, type MatchInfo, type QueueMode, type ServerMessage } from "@vanta/shared";
+import { GAME_PROTOCOL_VERSION, type ClientMessage, type MatchInfo, type QueueMode, type RankedResultWire, type ServerMessage } from "@vanta/shared";
 import { api } from "../api/client";
 
 type Listener = (m: ServerMessage) => void;
@@ -20,6 +20,8 @@ class GameSocket {
   /** Última partida recebida (para a tela de partida montar mesmo se a mensagem chegou antes). */
   match: MatchInfo | null = null;
   inMatch = false;
+  /** Último resultado ranqueado gravado pelo servidor (pode chegar logo depois do fim da partida). */
+  rankedResult: RankedResultWire | null = null;
   rtt = 0;
   private pingTimer: number | null = null;
 
@@ -70,6 +72,9 @@ class GameSocket {
       } else if (msg.t === "match") {
         this.match = msg.info;
         this.inMatch = true;
+        this.rankedResult = null;
+      } else if (msg.t === "ranked_result") {
+        this.rankedResult = msg;
       } else if (msg.t === "left_match") {
         this.match = null;
         this.inMatch = false;
@@ -122,8 +127,8 @@ class GameSocket {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
   }
 
-  queue(mode: QueueMode, loadout: string[]) {
-    this.send({ t: "queue", mode, loadout });
+  queue(mode: QueueMode, loadout: string[], ranked = false) {
+    this.send({ t: "queue", mode, loadout, ...(ranked ? { ranked: true } : {}) });
   }
 
   on(l: Listener) {
@@ -137,3 +142,6 @@ class GameSocket {
 }
 
 export const gameSocket = new GameSocket();
+
+// Só em desenvolvimento: usado pelos testes E2E para provar que o servidor recusa pedidos que a tela não deixa fazer.
+if (import.meta.env.DEV) (window as unknown as { __vantaSocket: GameSocket }).__vantaSocket = gameSocket;

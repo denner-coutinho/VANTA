@@ -7,7 +7,7 @@ import type { Vec3 } from "../game/math.js";
  * Toda mensagem do cliente é validada com zod no servidor; o cliente só envia intenções.
  */
 
-export const GAME_PROTOCOL_VERSION = 1;
+export const GAME_PROTOCOL_VERSION = 2;
 export const SERVER_TICK_RATE = 60;
 /** Um snapshot a cada N ticks (60/2 = 30 Hz). */
 export const SNAPSHOT_EVERY = 2;
@@ -94,7 +94,7 @@ const wireCommand = z.tuple([
 
 export const clientMessageSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("hello"), token: z.string().min(10).max(4096), v: z.number().int() }),
-  z.object({ t: z.literal("queue"), mode: z.enum(["1v1", "2v2", "3v3"]), loadout: z.array(z.string().min(1).max(40)).min(1).max(3) }),
+  z.object({ t: z.literal("queue"), mode: z.enum(["1v1", "2v2", "3v3"]), loadout: z.array(z.string().min(1).max(40)).min(1).max(3), ranked: z.boolean().optional() }),
   z.object({ t: z.literal("cancel_queue") }),
   z.object({ t: z.literal("ready") }),
   z.object({ t: z.literal("cmd"), c: z.array(wireCommand).min(1).max(30) }),
@@ -117,6 +117,8 @@ export interface MatchPlayerInfo {
 export interface MatchInfo {
   matchId: string;
   mode: QueueMode;
+  /** Partida ranqueada (vale MMR e Pontos de Patente). */
+  ranked: boolean;
   map: string;
   roundsToWin: number;
   you: string;
@@ -188,9 +190,30 @@ export interface Snapshot {
   ev: MatchEventWire[];
 }
 
+/** Resultado ranqueado do próprio jogador, enviado depois que o servidor grava a partida. */
+export interface RankedResultWire {
+  t: "ranked_result";
+  matchId: string;
+  mode: QueueMode;
+  outcome: "WIN" | "LOSS" | "DRAW" | "ABANDONED";
+  pointsBefore: number;
+  pointsAfter: number;
+  delta: number;
+  /** Ordem da patente (1..15) ou null durante a classificação. */
+  rankBefore: number | null;
+  rankAfter: number | null;
+  placementLeft: number;
+  /** Terminou a classificação nesta partida. */
+  placed: boolean;
+  promoted: boolean;
+  demoted: boolean;
+  winStreak: number;
+}
+
 export type ServerMessage =
   | { t: "welcome"; userId: string; username: string; inMatch: boolean }
-  | { t: "queue"; state: "idle" | "searching"; mode?: QueueMode; inQueue?: number; needed?: number; since?: number }
+  | { t: "queue"; state: "idle" | "searching"; mode?: QueueMode; ranked?: boolean; inQueue?: number; needed?: number; since?: number }
+  | RankedResultWire
   | { t: "match"; info: MatchInfo }
   | Snapshot
   | { t: "pong"; n: number; tick: number }
