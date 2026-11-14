@@ -66,8 +66,34 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **Ctrl agacha**, mas o navegador não deixa um site bloquear Ctrl+W (fechar aba). Por isso **C** também agacha, e as teclas são remapeáveis na Fase 7.
 - **Desempenho real não foi medido em GPU.** O navegador do contêiner renderiza por software (≈10–14 FPS no Baixo/Médio); em máquina com placa de vídeo o esperado é muito acima, mas só vou afirmar números depois de medir.
 
-## Fase 3 — Multiplayer ⏳
-Colyseus autoritativo, sincronização, predição/interpolação, reconexão, salas, partidas 1v1/2v2/3v3.
+## Fase 3 — Multiplayer ✅ (14/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| Servidor de jogo separado (`apps/server/src/game`, processo `dev:game`, porta 4100, WebSocket `/game`) | ✅ | `test/game-server.test.ts` |
+| Autenticação com o mesmo JWT da API, conta revalidada a cada 30 s (banimento derruba a conexão), uma conexão por conta, bloqueio de Origin de terceiros | ✅ | idem |
+| Fila 1v1, 2v2 e 3v3 **só com jogadores reais** (a partida começa quando a fila completa; nenhum bot) | ✅ | idem (3v3 só abre com 6 pessoas) + E2E |
+| Simulação autoritativa a 60 Hz reutilizando `@vanta/shared` (movimento, armas, dispersão com semente secreta, dano) | ✅ | `test/match.test.ts` |
+| Predição no cliente + reconciliação (reaplica comandos não confirmados) | ✅ | Teste de determinismo + E2E (erro predição × servidor ≈ 0 m) |
+| Interpolação dos outros jogadores (100 ms) | ✅ | E2E confere posição vista × posição real |
+| Compensação de latência no hitscan (rebobina até 250 ms) | ✅ | Teste acerta com `viewTick` antigo e erra sem ele |
+| Rounds: aquecimento, congelamento (4 s), round (100 s), fim por eliminação ou tempo, vitória ao atingir 5/6/7 rounds | ✅ | Testes |
+| Anti-cheat básico: só intenções vão ao servidor; seq contínuo; relógio de comandos (anti speed-hack); cadência no servidor; validação zod; limite de mensagens e de tamanho; vida de inimigos não é enviada | ✅ | Testes |
+| Reconexão (60 s para voltar; depois conta como abandono; time inteiro fora = W.O.) | ✅ | Testes + E2E (recarregar a página volta à partida) |
+| Registro da partida no banco (Match, MatchPlayer, MatchEvent) e estatísticas agregadas do perfil | ✅ | Teste de integração com PostgreSQL |
+| Cliente: tela Jogar (modo, arsenal, fila com contagem), partida com placar, relógio, killfeed, placar no Tab, banners de round, resultado com MVP | ✅ | Capturas 14–16 |
+| Avatares dos outros jogadores com caminhada, agachamento, mira e queda | ✅ | Captura 17 |
+
+**Testes:** 85 automatizados (51 API + servidor de jogo, 30 shared, 4 cliente) + E2E Fase 1 (10) + E2E Fase 2 (9) + **E2E Fase 3 com dois navegadores reais (11 etapas)**, todos passando.
+
+### Limites honestos da Fase 3
+- **Testado em rede local, não na internet.** A predição, a interpolação e a compensação de latência estão implementadas e testadas, mas com o servidor na mesma máquina. Medir com latência real (100+ ms) depende da hospedagem (Fase 8).
+- **Um processo de jogo só.** A fila fica na memória desse processo. Para várias instâncias, a fila e o registro de partidas passam para o Redis (Fase 8).
+- **A mira é do cliente**, como em todo FPS: o servidor confere cadência, munição, dispersão e linha de visão, mas não impede *aimbot* nem *no-recoil*. Detecção estatística entra na Fase 7/8.
+- **O servidor envia a posição de todos os jogadores**, o que permite *wallhack* em cliente adulterado. Filtrar por visibilidade fica para a Fase 8.
+- **Fogo amigo desligado**: aliados não se ferem e balas atravessam aliados.
+- **Times por ordem de chegada.** O balanceamento por MMR (Glicko-2) e o modo ranqueado chegam na Fase 5. As partidas desta fase são casuais e não mexem em patente.
+- **Avatares procedurais** (personagens rigados chegam na Fase 4). A cor do visor segue o personagem principal do jogador; a faixa, o time.
 
 ## Fases 4–8 ⏳
 Conteúdo (mapas, personagens, armas, áudio) · Competitivo (MMR Glicko-2, 15 patentes, temporadas, ranking) · Economia (VC, loja, inventário, Stripe Checkout + webhooks) · Sistemas sociais (amigos, clãs, missões, replays, kill cam) · Finalização (carga, segurança, Docker, CI, deploy).

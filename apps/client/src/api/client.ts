@@ -25,6 +25,9 @@ export class ApiClient {
     this.accessToken = token;
     this.listeners.forEach((l) => l(token));
   }
+  get token() {
+    return this.accessToken;
+  }
   onTokenChange(l: Listener) {
     this.listeners.add(l);
     return () => this.listeners.delete(l);

@@ -6,6 +6,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().default("redis://localhost:6379"),
   API_PORT: z.coerce.number().int().default(4000),
   API_HOST: z.string().default("0.0.0.0"),
+  GAME_PORT: z.coerce.number().int().default(4100),
   CORS_ORIGINS: z.string().default("http://localhost:5173"),
   PUBLIC_APP_URL: z.string().url().default("http://localhost:5173"),
   JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET precisa ter pelo menos 32 caracteres"),

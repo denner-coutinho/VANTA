@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { gameSocket } from "../net/GameSocket";
 import { useNavigate } from "react-router-dom";
 import { RANKS, rankProgress, type ActiveEvent } from "@vanta/shared";
 import { useAuth } from "../auth/AuthContext";
@@ -16,7 +17,7 @@ interface Season { name: string; endsAt: string }
 
 /** Itens do menu. `phase` indica quando a funcionalidade entra no roadmap (não há botão falso). */
 const NAV: Array<{ key: string; label: string; phase?: number; hint: string }> = [
-  { key: "play", label: "Jogar", hint: "Treinamento · multiplayer na Fase 3" },
+  { key: "play", label: "Jogar", hint: "1v1 · 2v2 · 3v3 · treino" },
   { key: "ranked", label: "Ranqueado", phase: 5, hint: "Matchmaking por MMR e 15 patentes" },
   { key: "rooms", label: "Salas", phase: 3, hint: "Salas personalizadas com código" },
   { key: "store", label: "Loja", phase: 6, hint: "Skins e cosméticos com VANTA COINS" },
@@ -46,6 +47,15 @@ export function MainMenu() {
     api.get<Season | null>("/content/season").then(setSeason).catch(() => setSeason(null));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Partida em andamento (ex.: recarregou a página ou caiu a conexão): volta direto para ela.
+  useEffect(() => {
+    gameSocket.connect();
+    if (gameSocket.inMatch) navigate("/partida");
+    return gameSocket.on((m) => {
+      if ((m.t === "welcome" && m.inMatch) || m.t === "match") navigate("/partida");
+    });
+  }, [navigate]);
+
   const character = characters[charIndex];
   const points = me?.ranked?.points ?? 0;
   const rp = useMemo(() => rankProgress(points), [points]);
@@ -54,7 +64,7 @@ export function MainMenu() {
 
   function onNav(key: string, phase?: number) {
     if (key === "profile") return setPanel("profile");
-    if (key === "play") return navigate("/treinamento");
+    if (key === "play") return navigate("/jogar");
     if (phase) {
       uiSound.error();
       toast(`Fase ${phase} do roadmap`, "Este modo ainda está em desenvolvimento e será liberado quando for testado de ponta a ponta.");

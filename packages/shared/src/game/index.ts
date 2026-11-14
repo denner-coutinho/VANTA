@@ -5,3 +5,4 @@ export * from "./movement.js";
 export * from "./weapons.js";
 export * from "./maps/index.js";
 export * from "./weapon-catalog.js";
+export * from "./sim.js";

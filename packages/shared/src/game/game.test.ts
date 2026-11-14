@@ -6,6 +6,10 @@ import { CATEGORY_TUNING, createWeaponState, currentSpread, damageAt, fireBlockR
 import { NEON_DISTRICT } from "./maps/neon-district.js";
 import { viewDir } from "./math.js";
 import { WEAPON_CATALOG as WEAPON_FIXTURES } from "./weapon-catalog.js";
+import { MAP_REGISTRY } from "./maps/index.js";
+import { WEAPON_CATALOG } from "./weapon-catalog.js";
+import { applyCommand, cloneCombatant, createCombatant, sanitizeCommand, type PlayerCommand } from "./sim.js";
+import { decodeCommand, encodeCommand } from "../net/protocol.js";
 
 const flat = new CollisionWorld([aabbFromCenter(0, -0.5, 0, 200, 1, 200)]);
 const idle: MoveInput = { forward: 0, right: 0, jump: false, crouch: false, sprint: false, aiming: false, yaw: 0, pitch: 0, weaponSpeedMult: 1 };
@@ -254,5 +258,50 @@ describe("Neon District", () => {
       const feet = { ...t.pos, y: t.pos.y + 0.01 };
       expect(humanoidHitboxes(feet).some((h) => world.query(h.box).some((b) => overlaps(h.box, b, 1e-3)))).toBe(false);
     }
+  });
+});
+
+describe("comandos e predição (Fase 3)", () => {
+  const map = MAP_REGISTRY.NEON_DISTRICT!;
+  const world = new CollisionWorld(map.solids.map((s) => s.box));
+  const loadout = [weaponStatsFromRow(WEAPON_CATALOG[0] as unknown as Record<string, unknown>)];
+  const cmd = (seq: number, over: Partial<PlayerCommand> = {}): PlayerCommand => ({ seq, forward: 1, right: 0, jump: seq % 50 === 0, crouch: false, sprint: seq < 100, aim: false, fire: seq % 7 === 0, reload: seq === 120, slot: 0, yaw: Math.PI + Math.sin(seq / 20) * 0.5, pitch: 0, viewTick: seq, ...over });
+
+  it("codificação compacta do comando é reversível", () => {
+    const c = cmd(42, { right: -1, crouch: true, aim: true });
+    const back = decodeCommand(encodeCommand(c));
+    expect(back).toMatchObject({ ...c, yaw: expect.closeTo(c.yaw, 4) });
+  });
+
+  it("reaplicar comandos a partir do estado do servidor reproduz exatamente a predição", () => {
+    const spawn = map.spawns.A[0]!;
+    const predicted = createCombatant(spawn, loadout, 7);
+    const server = createCombatant(spawn, loadout, 7);
+    const cmds = Array.from({ length: 200 }, (_, i) => cmd(i + 1));
+    const ctx = { world, loadout, frozen: false };
+    for (const c of cmds) applyCommand(predicted, c, ctx);
+    // O servidor confirma até o comando 120; o cliente volta a esse estado e reaplica o resto.
+    for (const c of cmds.slice(0, 120)) applyCommand(server, c, ctx);
+    const reconciled = cloneCombatant(server);
+    for (const c of cmds.slice(120)) applyCommand(reconciled, c, ctx);
+    expect(reconciled.move.pos).toEqual(predicted.move.pos);
+    expect(reconciled.weapons[0]!.ammo).toBe(predicted.weapons[0]!.ammo);
+  });
+
+  it("saneia comandos adulterados", () => {
+    const c = sanitizeCommand(cmd(1, { forward: 50, pitch: 9, yaw: Number.NaN, slot: 7 }));
+    expect(c.forward).toBe(1);
+    expect(c.pitch).toBeLessThanOrEqual(Math.PI / 2);
+    expect(c.yaw).toBe(0);
+    expect(c.slot).toBe(2);
+  });
+
+  it("congelado: não anda nem atira", () => {
+    const c = createCombatant(map.spawns.A[0]!, loadout, 1);
+    const z0 = c.move.pos.z;
+    let shots = 0;
+    for (let i = 1; i <= 60; i++) if (applyCommand(c, cmd(i, { fire: true }), { world, loadout, frozen: true }).shot) shots++;
+    expect(c.move.pos.z).toBeCloseTo(z0, 2);
+    expect(shots).toBe(0);
   });
 });

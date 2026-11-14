@@ -6,6 +6,8 @@ import { LoginScreen } from "./screens/LoginScreen";
 import { RegisterScreen } from "./screens/RegisterScreen";
 import { ForgotPasswordScreen, ResetPasswordScreen, VerifyEmailScreen } from "./screens/RecoveryScreens";
 import { MainMenu } from "./screens/MainMenu";
+import { PlayScreen } from "./screens/PlayScreen";
+import { MatchScreen } from "./screens/MatchScreen";
 import { TrainingScreen } from "./screens/TrainingScreen";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -32,6 +34,8 @@ export function App() {
       <Route path="/verificar-email" element={<VerifyEmailScreen />} />
       <Route path="/menu" element={<RequireAuth><MainMenu /></RequireAuth>} />
       <Route path="/treinamento" element={<RequireAuth><TrainingScreen /></RequireAuth>} />
+      <Route path="/jogar" element={<RequireAuth><PlayScreen /></RequireAuth>} />
+      <Route path="/partida" element={<RequireAuth><MatchScreen /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
