@@ -53,6 +53,7 @@ pnpm --filter @vanta/server create-admin seu@email.com ADMIN   # ou SUPERADMIN /
 createdb vanta_test                   # uma vez (ou: docker compose exec postgres createdb -U vanta vanta_test)
 pnpm test                             # unitários + integração (API contra PostgreSQL/Redis reais)
 node scripts/e2e-smoke.mjs            # ponta a ponta no navegador (com `pnpm dev` rodando)
+node scripts/e2e-training.mjs         # Fase 2: joga o treinamento (tiro, recarga, troca, pausa, arsenal)
 ```
 
 O teste E2E precisa do Playwright: `npm i -g playwright && npx playwright install chromium`.

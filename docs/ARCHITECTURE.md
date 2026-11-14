@@ -79,3 +79,15 @@ Restrições extras em SQL (`20261114160800_integrity_constraints`): saldo não 
 Não é possível gerar aqui personagens com qualidade comercial (escultura, retopologia, texturas, rig e animação de captura). Plano:
 1. **Agora:** operador procedural em código (original, animado em idle, cabeça segue o cursor) atrás do contrato `OperatorRig`.
 2. **Fase 4:** pipeline glTF + `AnimationMixer` com um rig humanoide único (`vanta_humanoid_v1`) compartilhado pelos 8 personagens. Fontes viáveis: modelos encomendados a um artista, bases CC0 (ex.: Quaternius, Kenney) personalizadas, e animações com licença que permite uso comercial em jogos. Cada personagem vira um `modelKey` no banco, sem mudar código.
+
+## Gameplay (Fase 2)
+
+A simulação fica em `packages/shared/src/game` e não depende de navegador nem de Three.js, para que o servidor autoritativo da Fase 3 rode exatamente as mesmas regras:
+
+- `movement.ts`: `stepPlayer(state, input, world)` a 60 Hz fixos (andar, correr, agachar, pular, degraus, gravidade).
+- `collision.ts` / `raycast.ts`: mundo de AABBs com grade espacial, raycast por *slab*, hitboxes humanoides (cabeça/corpo/pernas).
+- `weapons.ts`: estado da arma (munição, recarga, troca, *bloom*, recuo) e disparo com RNG semeado (mulberry32), reproduzível no servidor.
+- `weapon-catalog.ts`: as 10 armas; o seed do banco importa daqui, então banco e simulação nunca divergem.
+- `maps/`: definição de mapa como dados (sólidos, neon, luzes, spawns, alvos). O cliente monta o visual a partir dela; o servidor usará só os sólidos.
+
+No cliente (`apps/client/src/game`), `GameRuntime` acumula o tempo real, roda N ticks de simulação e renderiza interpolando entre os dois últimos estados. A mira é aplicada por quadro (sem atraso de tick). A arma em primeira pessoa é desenhada numa cena separada depois de limpar o depth buffer, para não atravessar paredes.

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { RANKS, rankProgress, type ActiveEvent } from "@vanta/shared";
 import { useAuth } from "../auth/AuthContext";
 import { api } from "../api/client";
@@ -15,7 +16,7 @@ interface Season { name: string; endsAt: string }
 
 /** Itens do menu. `phase` indica quando a funcionalidade entra no roadmap (não há botão falso). */
 const NAV: Array<{ key: string; label: string; phase?: number; hint: string }> = [
-  { key: "play", label: "Jogar", phase: 2, hint: "Treinamento e partidas casuais" },
+  { key: "play", label: "Jogar", hint: "Treinamento · multiplayer na Fase 3" },
   { key: "ranked", label: "Ranqueado", phase: 5, hint: "Matchmaking por MMR e 15 patentes" },
   { key: "rooms", label: "Salas", phase: 3, hint: "Salas personalizadas com código" },
   { key: "store", label: "Loja", phase: 6, hint: "Skins e cosméticos com VANTA COINS" },
@@ -26,6 +27,7 @@ const NAV: Array<{ key: string; label: string; phase?: number; hint: string }> =
 export function MainMenu() {
   const { me, logout } = useAuth();
   const toast = useToast();
+  const navigate = useNavigate();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [charIndex, setCharIndex] = useState(0);
   const [events, setEvents] = useState<ActiveEvent[] | null>(null);
@@ -52,6 +54,7 @@ export function MainMenu() {
 
   function onNav(key: string, phase?: number) {
     if (key === "profile") return setPanel("profile");
+    if (key === "play") return navigate("/treinamento");
     if (phase) {
       uiSound.error();
       toast(`Fase ${phase} do roadmap`, "Este modo ainda está em desenvolvimento e será liberado quando for testado de ponta a ponta.");
