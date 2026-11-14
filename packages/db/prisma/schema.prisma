@@ -1,0 +1,1006 @@
+// ════════════════════════════════════════════════════════════════════════
+//  VANTA: FRONTLINE — esquema do banco de dados (PostgreSQL + Prisma)
+//
+//  Convenções:
+//   • IDs: cuid (texto), gerados pelo servidor.
+//   • Dinheiro real: sempre em centavos (Int) + moeda ISO (BRL).
+//   • VANTA COINS: inteiro. O saldo em Wallet é um cache; a fonte da verdade
+//     é o razão (WalletTransaction), que é somente-inserção.
+//   • Datas em UTC.
+// ════════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum UserRole {
+  PLAYER
+  MODERATOR
+  ADMIN
+  SUPERADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  DELETED
+}
+
+enum Rarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
+  SEASONAL
+}
+
+enum WeaponCategory {
+  ASSAULT_RIFLE
+  SMG
+  SNIPER
+  SHOTGUN
+  PISTOL
+}
+
+enum CosmeticSlot {
+  UNIFORM
+  HELMET
+  MASK
+  FULL_SUIT
+  ACCESSORY
+  EFFECT
+}
+
+enum ItemType {
+  WEAPON_SKIN
+  CHARACTER_SKIN
+  EMBLEM
+  AVATAR
+  PLAYER_CARD
+  VICTORY_ANIMATION
+  VISUAL_EFFECT
+  SPRAY
+  BANNER
+  CHARACTER
+}
+
+enum ItemSource {
+  PURCHASE
+  REWARD
+  SEASON_REWARD
+  EVENT
+  ADMIN_GRANT
+  DEFAULT
+}
+
+enum WalletTxType {
+  PURCHASE_CREDIT // compra de VC aprovada
+  REWARD_CREDIT // recompensa gratuita (missão, evento)
+  STORE_DEBIT // compra de item na loja
+  REFUND_DEBIT // estorno de compra de VC
+  CHARGEBACK_DEBIT // chargeback
+  ADMIN_ADJUSTMENT // ajuste manual auditado
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  DISPUTED
+}
+
+enum GameMode {
+  DUEL_1V1
+  TEAM_2V2
+  TEAM_3V3
+  TRAINING
+}
+
+enum MatchType {
+  RANKED
+  CASUAL
+  CUSTOM
+}
+
+enum MatchStatus {
+  WAITING
+  IN_PROGRESS
+  FINISHED
+  ABORTED
+}
+
+enum MatchResult {
+  WIN
+  LOSS
+  DRAW
+  ABANDONED
+}
+
+enum RoomStatus {
+  OPEN
+  LOCKED
+  IN_MATCH
+  CLOSED
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+enum ClanRole {
+  LEADER
+  OFFICER
+  MEMBER
+}
+
+enum MissionPeriod {
+  DAILY
+  WEEKLY
+  SEASONAL
+  EVENT
+  ONE_TIME
+}
+
+enum ReportReason {
+  CHEATING
+  TOXIC_CHAT
+  OFFENSIVE_NAME
+  GRIEFING
+  AFK
+  BOOSTING
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  IN_REVIEW
+  ACTION_TAKEN
+  DISMISSED
+}
+
+enum BanType {
+  CHAT_MUTE
+  RANKED_BAN
+  SUSPENSION
+  PERMANENT
+}
+
+// ─────────────────────────── Contas e autenticação ───────────────────────────
+
+model User {
+  id              String        @id @default(cuid())
+  username        String
+  /// Versão minúscula do username, garante unicidade case-insensitive.
+  usernameLower   String        @unique
+  email           String        @unique
+  emailVerifiedAt DateTime?
+  /// Hash Argon2id (nunca a senha em texto).
+  passwordHash    String
+  role            UserRole      @default(PLAYER)
+  status          AccountStatus @default(ACTIVE)
+  birthDate       DateTime      @db.Date
+  locale          String        @default("pt-BR")
+  termsAcceptedAt DateTime
+  /// Incrementado em troca de senha / logout global: invalida tokens de acesso antigos.
+  tokenVersion    Int           @default(0)
+  lastLoginAt     DateTime?
+  lastSeenAt      DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  profile              UserProfile?
+  wallet               Wallet?
+  sessions             AuthSession[]
+  emailTokens          EmailVerificationToken[]
+  resetTokens          PasswordResetToken[]
+  inventory            Inventory[]
+  paymentOrders        PaymentOrder[]
+  matchPlayers         MatchPlayer[]
+  rankedRatings        RankedRating[]
+  rankHistory          RankHistory[]
+  roomsOwned           Room[]                   @relation("RoomOwner")
+  roomPlayers          RoomPlayer[]
+  friendsA             Friend[]                 @relation("FriendA")
+  friendsB             Friend[]                 @relation("FriendB")
+  friendRequestsSent   FriendRequest[]          @relation("FriendRequestFrom")
+  friendRequestsRecv   FriendRequest[]          @relation("FriendRequestTo")
+  blocks               UserBlock[]              @relation("Blocker")
+  blockedBy            UserBlock[]              @relation("Blocked")
+  clanMembership       ClanMember?
+  clansOwned           Clan[]                   @relation("ClanOwner")
+  missions             UserMission[]
+  achievements         UserAchievement[]
+  reportsFiled         Report[]                 @relation("Reporter")
+  reportsAgainst       Report[]                 @relation("Reported")
+  reportsHandled       Report[]                 @relation("ReportHandler")
+  bans                 Ban[]                    @relation("BanTarget")
+  bansIssued           Ban[]                    @relation("BanIssuer")
+  notifications        Notification[]
+  adminActions         AdminAuditLog[]
+  securityEvents       SecurityEvent[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// Sessão de login (um por dispositivo). Guarda o hash do refresh token rotativo.
+model AuthSession {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SHA-256 do refresh token atual. O token em si só existe no cookie httpOnly.
+  refreshTokenHash String    @unique
+  /// Família de rotação: se um token antigo for reutilizado, toda a família é revogada.
+  familyId         String
+  userAgent        String?
+  ip               String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  revokedReason    String?
+  replacedById     String?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  ip        String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Registro de segurança: logins, falhas, bloqueios, troca de senha, reuso de token etc.
+model SecurityEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type      String
+  ip        String?
+  userAgent String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+model UserProfile {
+  userId          String    @id
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName     String
+  bio             String?   @db.VarChar(280)
+  level           Int       @default(1)
+  totalXp         Int       @default(0)
+  title           String?
+  avatarKey       String    @default("default")
+  bannerKey       String    @default("default")
+  playerCardKey   String    @default("default")
+  /// Personagem selecionado no menu/partida.
+  mainCharacterId String?
+  mainCharacter   Character? @relation(fields: [mainCharacterId], references: [id], onDelete: SetNull)
+  /// Estatísticas agregadas (atualizadas pelo servidor ao final de cada partida).
+  matchesPlayed   Int       @default(0)
+  wins            Int       @default(0)
+  losses          Int       @default(0)
+  kills           Int       @default(0)
+  deaths          Int       @default(0)
+  assists         Int       @default(0)
+  headshots       Int       @default(0)
+  shotsFired      Int       @default(0)
+  shotsHit        Int       @default(0)
+  mvpCount        Int       @default(0)
+  /// Configurações do jogo (sensibilidade, gráficos, áudio, keybinds) — validadas no servidor.
+  settings        Json      @default("{}")
+  updatedAt       DateTime  @updatedAt
+}
+
+// ─────────────────────────── Conteúdo do jogo ───────────────────────────
+
+model Character {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  role        String
+  /// História e personalidade (texto de apresentação).
+  lore        String
+  personality String
+  primaryColor String
+  /// Chave do modelo 3D e conjunto de animações no cliente (ex.: "operator_base").
+  modelKey    String
+  rigKey      String   @default("vanta_humanoid_v1")
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  skins    CharacterSkin[]
+  profiles UserProfile[]
+  matchPlayers MatchPlayer[]
+}
+
+/// Arma. Os atributos de combate aqui são a fonte autoritativa usada pelo servidor de jogo.
+model Weapon {
+  id              String         @id @default(cuid())
+  code            String         @unique
+  name            String
+  category        WeaponCategory
+  description     String
+  damage          Int
+  headshotMult    Float          @default(2.0)
+  /// Disparos por minuto.
+  fireRateRpm     Int
+  magazineSize    Int
+  reserveAmmo     Int
+  reloadMs        Int
+  /// Alcance efetivo em metros (o dano cai depois disso).
+  rangeM          Float
+  /// Dispersão base em graus (parado, mirando).
+  spreadDeg       Float
+  /// Intensidade do recuo vertical (unidade de jogo).
+  recoil          Float
+  /// Multiplicador de velocidade de movimento ao carregar a arma.
+  moveSpeedMult   Float          @default(1.0)
+  pelletsPerShot  Int            @default(1)
+  modelKey        String
+  soundKey        String
+  isActive        Boolean        @default(true)
+  sortOrder       Int            @default(0)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  skins WeaponSkin[]
+}
+
+model GameMap {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String
+  /// Chave do cenário no cliente/servidor (geometria e colisão).
+  sceneKey    String
+  supportedModes GameMode[]
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  matches Match[]
+  rooms   Room[]
+}
+
+model WeaponSkin {
+  id        String   @id @default(cuid())
+  weaponId  String
+  weapon    Weapon   @relation(fields: [weaponId], references: [id], onDelete: Cascade)
+  storeItem StoreItem?
+  code      String   @unique
+  name      String
+  rarity    Rarity
+  /// Parâmetros visuais do material (cores, padrão, emissão) — interpretados pelo cliente.
+  material  Json
+  createdAt DateTime @default(now())
+
+  @@index([weaponId])
+}
+
+model CharacterSkin {
+  id          String       @id @default(cuid())
+  characterId String
+  character   Character    @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  storeItem   StoreItem?
+  code        String       @unique
+  name        String
+  slot        CosmeticSlot
+  rarity      Rarity
+  material    Json
+  createdAt   DateTime     @default(now())
+
+  @@index([characterId])
+}
+
+/// Item vendável/obtível. Cada item cosmético (skin, emblema, spray...) tem um StoreItem.
+model StoreItem {
+  id              String    @id @default(cuid())
+  code            String    @unique
+  type            ItemType
+  name            String
+  description     String
+  rarity          Rarity
+  /// Preço em VANTA COINS. null = não vendável (só recompensa).
+  priceVc         Int?
+  imageKey        String
+  preview3dKey    String?
+  weaponSkinId    String?   @unique
+  weaponSkin      WeaponSkin? @relation(fields: [weaponSkinId], references: [id], onDelete: Cascade)
+  characterSkinId String?   @unique
+  characterSkin   CharacterSkin? @relation(fields: [characterSkinId], references: [id], onDelete: Cascade)
+  seasonId        String?
+  season          RankedSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  availableFrom   DateTime?
+  availableUntil  DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  inventory Inventory[]
+
+  @@index([type, isActive])
+}
+
+/// Inventário: um registro por item possuído. Itens nunca são "duplicados".
+model Inventory {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeItemId String
+  storeItem   StoreItem  @relation(fields: [storeItemId], references: [id], onDelete: Restrict)
+  source      ItemSource
+  equipped    Boolean    @default(false)
+  /// Lançamento de débito que pagou o item (se comprado).
+  walletTxId  String?    @unique
+  acquiredAt  DateTime   @default(now())
+
+  @@unique([userId, storeItemId])
+  @@index([userId, equipped])
+}
+
+// ─────────────────────────── Economia (VANTA COINS) ───────────────────────────
+
+model Wallet {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  /// Saldo atual (cache). Sempre igual a SUM(WalletTransaction.amount). Nunca negativo.
+  balance   Int      @default(0)
+  /// Bloqueio otimista: toda alteração exige a versão atual.
+  version   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  transactions WalletTransaction[]
+}
+
+/// Razão contábil somente-inserção. Créditos positivos, débitos negativos.
+model WalletTransaction {
+  id             String       @id @default(cuid())
+  walletUserId   String
+  wallet         Wallet       @relation(fields: [walletUserId], references: [userId], onDelete: Restrict)
+  type           WalletTxType
+  amount         Int
+  balanceAfter   Int
+  /// Chave de idempotência (ex.: "stripe:checkout:cs_123", "store:<userId>:<itemId>").
+  idempotencyKey String       @unique
+  paymentOrderId String?
+  paymentOrder   PaymentOrder? @relation(fields: [paymentOrderId], references: [id], onDelete: Restrict)
+  description    String
+  meta           Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([walletUserId, createdAt])
+}
+
+/// Pacotes de VC configuráveis pelo painel administrativo.
+model CoinPackage {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  coins       Int
+  bonusCoins  Int      @default(0)
+  priceCents  Int
+  currency    String   @default("BRL")
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders PaymentOrder[]
+}
+
+/// Pedido de compra de VC. Valores copiados do pacote no momento da compra (imutáveis).
+model PaymentOrder {
+  id                    String        @id @default(cuid())
+  userId                String
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  coinPackageId         String
+  coinPackage           CoinPackage   @relation(fields: [coinPackageId], references: [id], onDelete: Restrict)
+  coins                 Int
+  priceCents            Int
+  currency              String
+  status                PaymentStatus @default(PENDING)
+  provider              String        @default("stripe")
+  /// ID da Checkout Session na Stripe.
+  providerSessionId     String?       @unique
+  providerPaymentIntent String?       @unique
+  /// Idempotência da criação do pedido (enviada pelo cliente, uma por clique de compra).
+  clientRequestId       String        @unique
+  refundedCents         Int           @default(0)
+  paidAt                DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  transactions WalletTransaction[]
+  webhookEvents PaymentWebhookEvent[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+/// Todo evento de webhook recebido (assinatura já verificada). event_id único = proteção contra reprocessamento.
+model PaymentWebhookEvent {
+  id              String        @id @default(cuid())
+  provider        String        @default("stripe")
+  providerEventId String        @unique
+  type            String
+  paymentOrderId  String?
+  paymentOrder    PaymentOrder? @relation(fields: [paymentOrderId], references: [id], onDelete: SetNull)
+  payload         Json
+  processedAt     DateTime?
+  error           String?
+  receivedAt      DateTime      @default(now())
+
+  @@index([type])
+}
+
+// ─────────────────────────── Partidas ───────────────────────────
+
+model Match {
+  id           String      @id @default(cuid())
+  mode         GameMode
+  type         MatchType
+  status       MatchStatus @default(WAITING)
+  mapId        String
+  map          GameMap     @relation(fields: [mapId], references: [id], onDelete: Restrict)
+  seasonId     String?
+  season       RankedSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  roomId       String?
+  room         Room?       @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  /// ID da sala no servidor de jogo (Colyseus).
+  gameServerRoomId String?
+  roundsToWin  Int
+  scoreTeamA   Int         @default(0)
+  scoreTeamB   Int         @default(0)
+  winnerTeam   Int?
+  mvpUserId    String?
+  startedAt    DateTime?
+  endedAt      DateTime?
+  /// Hash do fluxo de eventos (replay) para detectar adulteração.
+  replayHash   String?
+  createdAt    DateTime    @default(now())
+
+  players MatchPlayer[]
+  events  MatchEvent[]
+
+  @@index([status])
+  @@index([mode, type, createdAt])
+}
+
+model MatchPlayer {
+  id           String       @id @default(cuid())
+  matchId      String
+  match        Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  team         Int
+  characterId  String?
+  character    Character?   @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  result       MatchResult?
+  kills        Int          @default(0)
+  deaths       Int          @default(0)
+  assists      Int          @default(0)
+  headshots    Int          @default(0)
+  damageDealt  Int          @default(0)
+  shotsFired   Int          @default(0)
+  shotsHit     Int          @default(0)
+  score        Int          @default(0)
+  isMvp        Boolean      @default(false)
+  abandoned    Boolean      @default(false)
+  /// Variação de pontos de patente / MMR aplicada ao final (auditoria).
+  pointsDelta  Int?
+  mmrBefore    Float?
+  mmrAfter     Float?
+  xpEarned     Int          @default(0)
+  joinedAt     DateTime     @default(now())
+  leftAt       DateTime?
+
+  @@unique([matchId, userId])
+  @@index([userId, joinedAt])
+}
+
+/// Eventos de partida (kills, rounds, disparos relevantes). Base para replay e kill cam.
+model MatchEvent {
+  id       BigInt   @id @default(autoincrement())
+  matchId  String
+  match    Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  /// Tick do servidor em que o evento ocorreu.
+  tick     Int
+  round    Int
+  type     String
+  actorId  String?
+  targetId String?
+  data     Json
+  createdAt DateTime @default(now())
+
+  @@index([matchId, tick])
+}
+
+// ─────────────────────────── Ranqueado ───────────────────────────
+
+model Rank {
+  id        String  @id @default(cuid())
+  order     Int     @unique
+  code      String  @unique
+  name      String
+  tier      String
+  division  Int?
+  minPoints Int
+  color     String
+  glow      String
+  /// Recompensa ao final da temporada para quem termina nesta patente.
+  rewardStoreItemId String?
+  rewardCoins       Int     @default(0)
+}
+
+model RankedSeason {
+  id          String    @id @default(cuid())
+  number      Int       @unique
+  name        String
+  startsAt    DateTime
+  endsAt      DateTime
+  isActive    Boolean   @default(false)
+  /// Fração dos pontos mantida na próxima temporada (reinício parcial).
+  carryOverFactor Float @default(0.5)
+  placementMatches Int  @default(5)
+  closedAt    DateTime?
+  /// Snapshot dos melhores jogadores publicado ao fechar a temporada.
+  leaderboardSnapshot Json?
+  createdAt   DateTime  @default(now())
+
+  ratings    RankedRating[]
+  matches    Match[]
+  storeItems StoreItem[]
+  rankHistory RankHistory[]
+}
+
+/// Rating por jogador, temporada e modo.
+model RankedRating {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seasonId      String
+  season        RankedSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  mode          GameMode
+  /// MMR oculto (Glicko-2: rating, desvio e volatilidade).
+  mmr           Float        @default(1500)
+  mmrDeviation  Float        @default(350)
+  mmrVolatility Float        @default(0.06)
+  /// Pontos de Patente visíveis.
+  points        Int          @default(0)
+  peakPoints    Int          @default(0)
+  wins          Int          @default(0)
+  losses        Int          @default(0)
+  abandons      Int          @default(0)
+  placementLeft Int          @default(5)
+  winStreak     Int          @default(0)
+  lastMatchAt   DateTime?
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([userId, seasonId, mode])
+  @@index([seasonId, mode, points(sort: Desc)])
+}
+
+model RankHistory {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seasonId  String
+  season    RankedSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  mode      GameMode
+  fromOrder Int
+  toOrder   Int
+  points    Int
+  createdAt DateTime     @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ─────────────────────────── Salas personalizadas ───────────────────────────
+
+model Room {
+  id           String     @id @default(cuid())
+  /// Código curto para compartilhar (ex.: "VX7K2Q").
+  code         String     @unique
+  name         String
+  ownerId      String
+  owner        User       @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  mode         GameMode
+  mapId        String
+  map          GameMap    @relation(fields: [mapId], references: [id], onDelete: Restrict)
+  isPrivate    Boolean    @default(false)
+  /// Hash Argon2 da senha da sala (opcional).
+  passwordHash String?
+  maxPlayers   Int
+  roundsToWin  Int
+  roundTimeSec Int        @default(105)
+  /// Opções de combate (fogo amigo, só headshot, armas permitidas...).
+  options      Json       @default("{}")
+  status       RoomStatus @default(OPEN)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  closedAt     DateTime?
+
+  players RoomPlayer[]
+  matches Match[]
+
+  @@index([status, isPrivate])
+}
+
+model RoomPlayer {
+  id       String    @id @default(cuid())
+  roomId   String
+  room     Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team     Int?
+  isReady  Boolean   @default(false)
+  kickedAt DateTime?
+  joinedAt DateTime  @default(now())
+
+  @@unique([roomId, userId])
+}
+
+// ─────────────────────────── Social ───────────────────────────
+
+/// Amizade confirmada. Armazenada uma vez por par, com userAId < userBId.
+model Friend {
+  id        String   @id @default(cuid())
+  userAId   String
+  userA     User     @relation("FriendA", fields: [userAId], references: [id], onDelete: Cascade)
+  userBId   String
+  userB     User     @relation("FriendB", fields: [userBId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userAId, userBId])
+  @@index([userBId])
+}
+
+model FriendRequest {
+  id         String              @id @default(cuid())
+  fromId     String
+  from       User                @relation("FriendRequestFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId       String
+  to         User                @relation("FriendRequestTo", fields: [toId], references: [id], onDelete: Cascade)
+  status     FriendRequestStatus @default(PENDING)
+  createdAt  DateTime            @default(now())
+  respondedAt DateTime?
+
+  @@index([toId, status])
+  @@index([fromId, status])
+}
+
+model UserBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+}
+
+model Clan {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  /// Tag de 2–5 caracteres exibida antes do nome (ex.: [VNT]).
+  tag         String   @unique
+  description String?  @db.VarChar(500)
+  logoKey     String   @default("default")
+  ownerId     String
+  owner       User     @relation("ClanOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  rating      Float    @default(1500)
+  wins        Int      @default(0)
+  losses      Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members ClanMember[]
+}
+
+model ClanMember {
+  id       String   @id @default(cuid())
+  clanId   String
+  clan     Clan     @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  /// Um jogador pertence a no máximo um clã.
+  userId   String   @unique
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     ClanRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  @@index([clanId])
+}
+
+// ─────────────────────────── Progressão ───────────────────────────
+
+model Mission {
+  id           String        @id @default(cuid())
+  code         String        @unique
+  name         String
+  description  String
+  period       MissionPeriod
+  /// Objetivo interpretado pelo servidor (ex.: {"stat":"kills","target":20,"mode":"any"}).
+  objective    Json
+  rewardXp     Int           @default(0)
+  rewardCoins  Int           @default(0)
+  rewardStoreItemId String?
+  eventId      String?
+  event        GameEvent?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  isActive     Boolean       @default(true)
+  startsAt     DateTime?
+  endsAt       DateTime?
+  createdAt    DateTime      @default(now())
+
+  userMissions UserMission[]
+}
+
+model UserMission {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  missionId   String
+  mission     Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  /// Janela da missão (ex.: dia/semana) para permitir repetição periódica.
+  periodKey   String
+  progress    Int       @default(0)
+  completedAt DateTime?
+  claimedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, missionId, periodKey])
+}
+
+model Achievement {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String
+  iconKey     String
+  objective   Json
+  rewardTitle String?
+  rewardXp    Int      @default(0)
+  isHidden    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  userAchievements UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  progress      Int         @default(0)
+  unlockedAt    DateTime?
+
+  @@unique([userId, achievementId])
+}
+
+/// Evento temporário (ex.: "Semana Orbital"), com missões e recompensas próprias.
+model GameEvent {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String
+  bannerKey   String   @default("default")
+  startsAt    DateTime
+  endsAt      DateTime
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  missions Mission[]
+
+  @@index([isPublished, startsAt, endsAt])
+}
+
+// ─────────────────────────── Moderação ───────────────────────────
+
+model Report {
+  id          String       @id @default(cuid())
+  reporterId  String
+  reporter    User         @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedId  String
+  reported    User         @relation("Reported", fields: [reportedId], references: [id], onDelete: Cascade)
+  matchId     String?
+  reason      ReportReason
+  description String?      @db.VarChar(1000)
+  status      ReportStatus @default(OPEN)
+  handledById String?
+  handledBy   User?        @relation("ReportHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  resolution  String?
+  createdAt   DateTime     @default(now())
+  resolvedAt  DateTime?
+
+  @@index([status, createdAt])
+  @@index([reportedId])
+}
+
+model Ban {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation("BanTarget", fields: [userId], references: [id], onDelete: Cascade)
+  type       BanType
+  reason     String
+  issuedById String?
+  issuedBy   User?     @relation("BanIssuer", fields: [issuedById], references: [id], onDelete: SetNull)
+  startsAt   DateTime  @default(now())
+  /// null = permanente.
+  endsAt     DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, type])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+/// Log de auditoria: toda ação administrativa é registrada (somente-inserção).
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  action     String
+  targetType String
+  targetId   String?
+  before     Json?
+  after      Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+}

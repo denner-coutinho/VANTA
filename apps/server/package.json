@@ -1,0 +1,37 @@
+{
+  "name": "@vanta/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node --env-file-if-exists=../../.env dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "create-admin": "tsx --env-file-if-exists=../../.env scripts/create-admin.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/cors": "^11.0.0",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/jwt": "^10.0.0",
+    "@fastify/rate-limit": "^11.0.0",
+    "@vanta/db": "workspace:*",
+    "@vanta/shared": "workspace:*",
+    "argon2": "^0.44.0",
+    "fastify": "^5.6.0",
+    "fastify-plugin": "^5.0.0",
+    "ioredis": "^5.6.0",
+    "nodemailer": "^7.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^7.0.0",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.0",
+    "vitest": "^4.0.0"
+  }
+}
