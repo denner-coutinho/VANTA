@@ -15,6 +15,13 @@ export interface ChatLine {
   at: number;
 }
 
+export interface RoomInvite {
+  code: string;
+  name: string;
+  from: { id: string; username: string };
+  expiresAt: number;
+}
+
 export interface PartyInvite {
   partyId: string;
   from: { id: string; username: string };
@@ -26,6 +33,7 @@ interface SocialState {
   presence: Map<string, PresenceState>;
   party: PartyView | null;
   invites: PartyInvite[];
+  roomInvites: RoomInvite[];
   /** Chat do grupo e da partida atual (a tela de partida filtra o que é dela). */
   chat: ChatLine[];
   onlineFriends: number;
@@ -46,6 +54,8 @@ interface SocialState {
   report(userId: string, reason: ReportReasonCode, description?: string, matchId?: string): Promise<boolean>;
   inviteToParty(userId: string): void;
   respondInvite(partyId: string, accept: boolean): void;
+  /** Aceitar entra na sala (o convite dispensa a senha); recusar só some com o aviso. */
+  respondRoomInvite(code: string, accept: boolean): void;
   leaveParty(): void;
   kick(userId: string): void;
   sendChat(channel: ChatChannel, text: string): void;
@@ -66,6 +76,7 @@ export function SocialProvider({ children }: { children: ReactNode }) {
   const [presence, setPresence] = useState<Map<string, PresenceState>>(new Map());
   const [party, setParty] = useState<PartyView | null>(null);
   const [invites, setInvites] = useState<PartyInvite[]>([]);
+  const [roomInvites, setRoomInvites] = useState<RoomInvite[]>([]);
   const [chat, setChat] = useState<ChatLine[]>([]);
   const [searching, setSearching] = useState<SocialState["searching"]>(null);
   const authed = status === "authenticated";
@@ -93,6 +104,7 @@ export function SocialProvider({ children }: { children: ReactNode }) {
       setPresence(new Map());
       setParty(null);
       setInvites([]);
+      setRoomInvites([]);
       setChat([]);
       return;
     }
@@ -130,6 +142,19 @@ export function SocialProvider({ children }: { children: ReactNode }) {
           uiSound.success();
           setInvites((list) => [...list.filter((i) => i.partyId !== m.partyId), { partyId: m.partyId, from: m.from, expiresAt: m.expiresAt }]);
           return;
+        case "room_invite":
+          uiSound.success();
+          setRoomInvites((list) => [...list.filter((i) => i.code !== m.code), { code: m.code, name: m.name, from: m.from, expiresAt: m.expiresAt }]);
+          return;
+        case "room":
+          if (!m.room) {
+            setChat((c) => c.filter((l) => l.channel !== "room"));
+            if (m.reason === "kicked") toast("Sala", "O dono da sala removeu você.");
+            else if (m.reason === "closed") toast("Sala", "O dono encerrou a sala.");
+          } else {
+            setRoomInvites((list) => list.filter((i) => i.code !== m.room!.code));
+          }
+          return;
         case "chat":
           setChat((c) => [...c.slice(-99), { id: ++chatSeq, channel: m.channel, from: m.from, text: m.text, at: m.at }]);
           return;
@@ -143,7 +168,11 @@ export function SocialProvider({ children }: { children: ReactNode }) {
           lastMatchId.current = m.info.matchId;
           return;
         case "error":
-          if (["NOT_FRIEND", "OFFLINE", "PARTY_NOT_LEADER", "ALREADY_IN_PARTY", "IN_QUEUE", "PARTY_FULL", "INVITE_EXPIRED", "IN_MATCH", "CHAT_BANNED", "CHAT_RATE", "NO_PARTY", "NOT_IN_MATCH"].includes(m.code)) {
+          // ROOM_PASSWORD fica com a tela de salas (ela pede a senha).
+          if ((m.code.startsWith("ROOM_") && m.code !== "ROOM_PASSWORD") || ["NO_ROOM", "IN_ROOM", "ALREADY_IN_ROOM"].includes(m.code)) {
+            uiSound.error();
+            toast("Sala", m.message);
+          } else if (["NOT_FRIEND", "OFFLINE", "PARTY_NOT_LEADER", "ALREADY_IN_PARTY", "IN_QUEUE", "PARTY_FULL", "INVITE_EXPIRED", "IN_MATCH", "CHAT_BANNED", "CHAT_RATE", "NO_PARTY", "NOT_IN_MATCH"].includes(m.code)) {
             uiSound.error();
             toast("Social", m.message);
           }
@@ -158,10 +187,13 @@ export function SocialProvider({ children }: { children: ReactNode }) {
 
   // Convites vencidos somem sozinhos.
   useEffect(() => {
-    if (!invites.length) return;
-    const t = window.setInterval(() => setInvites((list) => list.filter((i) => i.expiresAt > Date.now())), 1000);
+    if (!invites.length && !roomInvites.length) return;
+    const t = window.setInterval(() => {
+      setInvites((list) => list.filter((i) => i.expiresAt > Date.now()));
+      setRoomInvites((list) => list.filter((i) => i.expiresAt > Date.now()));
+    }, 1000);
     return () => clearInterval(t);
-  }, [invites.length]);
+  }, [invites.length, roomInvites.length]);
 
   const run = useCallback(
     async (fn: () => Promise<unknown>, okTitle?: string, okBody?: string) => {
@@ -185,6 +217,7 @@ export function SocialProvider({ children }: { children: ReactNode }) {
       presence,
       party,
       invites,
+      roomInvites,
       chat,
       searching,
       onlineFriends: overview?.friends.filter((f) => (presence.get(f.id) ?? "offline") !== "offline").length ?? 0,
@@ -213,6 +246,10 @@ export function SocialProvider({ children }: { children: ReactNode }) {
         gameSocket.send({ t: "party_respond", partyId, accept });
         setInvites((list) => list.filter((i) => i.partyId !== partyId));
       },
+      respondRoomInvite: (code, accept) => {
+        if (accept) gameSocket.send({ t: "room_join", code });
+        setRoomInvites((list) => list.filter((i) => i.code !== code));
+      },
       leaveParty: () => gameSocket.send({ t: "party_leave" }),
       kick: (userId) => gameSocket.send({ t: "party_kick", userId }),
       sendChat: (channel, text) => {
@@ -220,7 +257,7 @@ export function SocialProvider({ children }: { children: ReactNode }) {
       },
       clearMatchChat: () => setChat((c) => c.filter((l) => l.channel === "party")),
     }),
-    [overview, presence, party, invites, chat, searching, refresh, run, toast],
+    [overview, presence, party, invites, roomInvites, chat, searching, refresh, run, toast],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

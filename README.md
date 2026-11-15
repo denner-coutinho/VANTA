@@ -59,6 +59,7 @@ node scripts/e2e-maps.mjs             # Fase 4: 5 partidas seguidas, uma em cada
 node scripts/e2e-ranked.mjs           # Fase 5: quatro navegadores em duas ranqueadas 1v1 (classificação, PP, bloqueio por abandono, ranking)
 node scripts/e2e-economy.mjs          # Fase 6: loja, compras, inventário, skins no menu e na partida
 node scripts/e2e-social.mjs           # Fase 7: três navegadores (amigos, presença, grupo, chat, denúncia, bloqueio)
+node scripts/e2e-rooms.mjs            # Fase 7: três navegadores (sala com senha, convite, regras, partida, espectador, remover, encerrar)
 ```
 
 O teste E2E precisa do Playwright: `npm i -g playwright && npx playwright install chromium`.

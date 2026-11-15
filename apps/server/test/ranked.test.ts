@@ -60,7 +60,7 @@ const rating = async (userId: string, mode: "DUEL_1V1" | "TEAM_2V2" | "TEAM_3V3"
 /** Resultado de partida fabricado (como o que `Match` entrega ao terminar), para testar a gravação. */
 function fakeResult(over: Omit<Partial<MatchResult>, "players"> & { players: Array<{ id: string; team: 0 | 1; abandoned?: boolean; mvp?: boolean }> }): MatchResult {
   const stats = (p: (typeof over.players)[number]): PlayerMatchStats & { characterId: string | null } => ({ id: p.id, username: p.id, team: p.team, kills: 5, deaths: 3, assists: 1, headshots: 2, damage: 500, shots: 40, hits: 20, abandoned: !!p.abandoned, mvp: !!p.mvp, characterId: null });
-  return { matchId: crypto.randomUUID(), mode: "1v1", mapCode: "NEON_DISTRICT", ranked: true, winner: 0, score: [5, 2], reason: "score", startedAt: new Date(Date.now() - 300_000), endedAt: new Date(), roundsToWin: 5, events: [], ...over, players: over.players.map(stats) };
+  return { matchId: crypto.randomUUID(), mode: "1v1", mapCode: "NEON_DISTRICT", ranked: true, winner: 0, score: [5, 2], reason: "score", startedAt: new Date(Date.now() - 300_000), endedAt: new Date(), roundsToWin: 5, events: [], ...over, roomId: over.roomId ?? null, players: over.players.map(stats) };
 }
 
 describe("fila ranqueada", () => {

@@ -25,12 +25,20 @@ import {
   type ChatChannel,
   type PresenceState,
   type SocialEvent,
+  ROOM_INVITE_TTL_MS,
+  makeRoomCode,
+  normalizeRoomCode,
+  roomMaxPlayers,
+  type RoomSettings,
+  type RoomTeam,
 } from "@vanta/shared";
 import { Match, type MatchResult, type MatchSeat } from "./match.js";
 import { equippedCosmetics } from "../modules/economy/store.service.js";
 import { applyRankedMatch, getActiveSeason, getOrCreateRating, rankedCooldownSeconds } from "./ranked.js";
 import { PartyManager, type Party } from "./party.js";
 import type { SocialBus } from "../modules/social/bus.js";
+import { RoomManager, type Room, type RoomError } from "./rooms.js";
+import { PasswordHasher } from "../lib/password.js";
 
 export interface GameServerOptions {
   prisma: PrismaClient;
@@ -47,6 +55,10 @@ export interface GameServerOptions {
   bus?: SocialBus;
   /** Tempo que um membro desconectado continua no grupo (ms). */
   partyGraceMs?: number;
+  /** Tempo que um membro desconectado continua na sala (fora de partida). */
+  roomGraceMs?: number;
+  /** Hash das senhas de sala (Argon2id, o mesmo das contas). */
+  hasher?: PasswordHasher;
 }
 
 interface Client {
@@ -73,6 +85,11 @@ interface Client {
   presence: PresenceState;
   /** Arsenal escolhido na tela Jogar (usado quando o líder do grupo entra na fila). */
   loadout: string[] | null;
+  /** Partida de sala que está assistindo (quadros atrasados). */
+  spectating: Match | null;
+  lastRoomCreate: number;
+  /** Tentativas de senha de sala erradas (anti força bruta). */
+  roomPwFails: number[];
 }
 
 interface QueueEntry {
@@ -109,6 +126,9 @@ export class GameServer {
   /** Nome/personagem de quem já se conectou (para mostrar membros de grupo offline). */
   private userInfo = new Map<string, { username: string; character: string }>();
   private partyGrace = new Map<string, NodeJS.Timeout>();
+  readonly rooms = new RoomManager();
+  private roomGrace = new Map<string, NodeJS.Timeout>();
+  private hasher: PasswordHasher;
   private unsubscribe: (() => Promise<void>) | null = null;
   private mmTimer: NodeJS.Timeout | null = null;
   readonly matches = new Map<string, Match>();
@@ -123,6 +143,7 @@ export class GameServer {
 
   constructor(private opts: GameServerOptions) {
     this.log = opts.log ?? console;
+    this.hasher = opts.hasher ?? new PasswordHasher(19456);
     // Rotação de mapas: em ordem, um mapa por partida (opts.maps restringe, ex.: testes ou eventos).
     this.rotation = (opts.maps ?? MAP_ROTATION).filter((c) => MAP_REGISTRY[c]);
     if (!this.rotation.length) throw new Error("Nenhum mapa válido na rotação");
@@ -149,6 +170,8 @@ export class GameServer {
 
   async start(port: number, host = "0.0.0.0"): Promise<number> {
     await this.loadWeapons();
+    // As salas vivem na memória deste processo: as que ficaram abertas de uma execução anterior são encerradas.
+    await this.opts.prisma.room.updateMany({ where: { status: { not: "CLOSED" } }, data: { status: "CLOSED", closedAt: new Date() } });
     await new Promise<void>((resolve) => this.http.listen(port, host, resolve));
     if (this.opts.autoTick !== false) {
       this.startLoop();
@@ -194,6 +217,7 @@ export class GameServer {
     if (this.mmTimer) clearInterval(this.mmTimer);
     if (this.recheckTimer) clearInterval(this.recheckTimer);
     for (const t of this.partyGrace.values()) clearTimeout(t);
+    for (const t of this.roomGrace.values()) clearTimeout(t);
     await this.unsubscribe?.();
     for (const c of this.clients.values()) c.ws.close(1001, "shutdown");
     for (const ws of this.wss.clients) ws.terminate();
@@ -211,6 +235,7 @@ export class GameServer {
       ws, userId: null, username: "", tokenVersion: 0, color: "#287BFF", characterId: null, character: "RAVEN", match: null, queued: null,
       msgWindowStart: Date.now(), msgCount: 0, helloTimer: null,
       friends: new Set(), blockRel: new Set(), muted: new Set(), chatBanUntil: 0, chatTimes: [], presence: "offline", loadout: null,
+      spectating: null, lastRoomCreate: 0, roomPwFails: [],
     };
     // 4000 (e não 4001): demorar para se identificar não é sessão inválida; o cliente só reconecta.
     client.helloTimer = setTimeout(() => ws.close(4000, "hello timeout"), HELLO_TIMEOUT_MS);
@@ -270,10 +295,36 @@ export class GameServer {
         return this.partyKick(c, msg.userId);
       case "chat":
         return this.chat(c, msg.channel, msg.text);
+      case "room_create":
+        return this.roomCreate(c, msg.settings, msg.password);
+      case "room_join":
+        return this.roomJoin(c, msg.code, msg.password, msg.spectate === true);
+      case "room_leave":
+        return this.roomLeave(c.userId);
+      case "room_update":
+        return this.roomUpdate(c, msg.settings, msg.password);
+      case "room_team":
+        return this.roomTeam(c, msg.userId ?? c.userId, msg.team);
+      case "room_kick":
+        return this.roomKick(c, msg.userId);
+      case "room_lock":
+        return this.roomLock(c, msg.locked);
+      case "room_start":
+        return this.roomStart(c);
+      case "room_close":
+        return this.roomClose(c);
+      case "room_list":
+        return this.roomList(c);
+      case "room_invite":
+        return this.roomInvite(c, msg.userId);
       case "ready":
         c.match?.setReady(c.userId);
         return;
       case "leave_match":
+        if (c.spectating) {
+          this.stopSpectating(c);
+          return;
+        }
         if (c.match) {
           c.match.forfeit(c.userId);
           c.match = null;
@@ -370,6 +421,16 @@ export class GameServer {
     }
     const party = this.parties.of(user.id);
     if (party) this.broadcastParty(party);
+    const rg = this.roomGrace.get(user.id);
+    if (rg) {
+      clearTimeout(rg);
+      this.roomGrace.delete(user.id);
+    }
+    const room = this.rooms.of(user.id);
+    if (room) {
+      this.broadcastRoom(room);
+      if (room.members.get(user.id)!.team === null && room.match && !room.match.isEnded) this.startSpectating(c, room.match);
+    }
   }
 
   /** Amigos, bloqueios, silenciados e banimento de chat (relidos quando a API avisa que mudaram). */
@@ -394,6 +455,7 @@ export class GameServer {
   private presenceOf(c: Client): PresenceState {
     if (c.match && !c.match.isEnded) return "match";
     if (c.queued) return "queue";
+    if (c.userId && (this.rooms.of(c.userId) || c.spectating)) return "room";
     return "online";
   }
 
@@ -544,6 +606,13 @@ export class GameServer {
       const p = this.parties.of(me);
       if (!p) return this.partyError(c, "NO_PARTY", "Você não está em um grupo.");
       to = p.members;
+    } else if (channel === "room") {
+      const room = this.rooms.of(me);
+      if (!room) return this.partyError(c, "NO_ROOM", "Você não está em uma sala.");
+      // Com a partida rolando, o chat da sala é só de quem assiste: espectador não fala com quem joga.
+      const live = room.match && !room.match.isEnded ? room.match : null;
+      if (live?.player(me)) return this.partyError(c, "ROOM_CHAT_MATCH", "Durante a partida, use o chat da partida.");
+      to = [...room.members.keys()].filter((id) => !live?.player(id));
     } else {
       const m = c.match;
       if (!m || m.isEnded) return this.partyError(c, "NOT_IN_MATCH", "O chat de partida só funciona durante a partida.");
@@ -559,6 +628,340 @@ export class GameServer {
       if (!r || (id !== me && (r.blockRel.has(me) || r.muted.has(me)))) continue;
       this.send(r, msg);
     }
+  }
+
+  // ───────────── Salas personalizadas ─────────────
+
+  private roomError(c: Client, e: RoomError) {
+    this.send(c, { t: "error", code: e.code, message: e.message });
+  }
+
+  /** Persistência da sala é um registro (o estado vivo fica na memória); falhas só vão para o log. */
+  private track(p: Promise<unknown>, what: string) {
+    const t = p.catch((e) => this.log.error(`[game] falha ao gravar ${what}`, e)).finally(() => this.pendingSaves.delete(t));
+    this.pendingSaves.add(t);
+  }
+
+  private saveRoomStatus(room: Room) {
+    const status = room.match && !room.match.isEnded ? "IN_MATCH" : room.locked ? "LOCKED" : "OPEN";
+    this.track(this.opts.prisma.room.update({ where: { id: room.id }, data: { status } }), "status da sala");
+  }
+
+  private roomDbData(s: RoomSettings) {
+    return {
+      name: s.name,
+      mode: MODES[s.mode].db,
+      isPrivate: s.isPrivate,
+      maxPlayers: roomMaxPlayers(s.mode),
+      roundsToWin: s.roundsToWin,
+      roundTimeSec: s.roundTimeSec,
+      options: { map: s.map, friendlyFire: s.friendlyFire, headshotsOnly: s.headshotsOnly, weapons: s.weapons, allowSpectators: s.allowSpectators },
+    };
+  }
+
+  private broadcastRoom(room: Room) {
+    const view = this.rooms.view(room, this.partyInfo);
+    for (const id of room.members.keys()) {
+      const c = this.clients.get(id);
+      if (c) this.send(c, { t: "room", room: view });
+    }
+  }
+
+  private startRoomGrace(userId: string) {
+    if (this.roomGrace.has(userId)) return;
+    const t = setTimeout(() => {
+      this.roomGrace.delete(userId);
+      if (!this.clients.has(userId)) this.roomLeave(userId);
+    }, this.opts.roomGraceMs ?? 30_000);
+    t.unref();
+    this.roomGrace.set(userId, t);
+  }
+
+  private startSpectating(c: Client, match: Match) {
+    if (c.spectating && c.spectating !== match) c.spectating.removeSpectator(c.userId!);
+    if (match.addSpectator(c.userId!, this.connFor(c))) c.spectating = match;
+  }
+
+  private stopSpectating(c: Client, notify = true) {
+    if (!c.spectating) return;
+    c.spectating.removeSpectator(c.userId!);
+    c.spectating = null;
+    if (notify) this.send(c, { t: "spec_end" });
+  }
+
+  /** Sai da fila e da sala anterior antes de entrar em outra. Devolve false se está jogando. */
+  private freeForRoom(c: Client): boolean {
+    if (c.match && !c.match.isEnded) {
+      this.partyError(c, "IN_MATCH", "Você está em uma partida.");
+      return false;
+    }
+    if (c.queued) {
+      this.dequeue(c);
+      this.send(c, { t: "queue", state: "idle" });
+    }
+    return true;
+  }
+
+  private async roomCreate(c: Client, settings: RoomSettings, password?: string) {
+    const me = c.userId!;
+    if (!this.freeForRoom(c)) return;
+    const now = Date.now();
+    if (now - c.lastRoomCreate < 5_000) return this.partyError(c, "ROOM_RATE", "Espere alguns segundos para criar outra sala.");
+    c.lastRoomCreate = now;
+    const db = this.opts.prisma;
+    const map = await db.gameMap.findUnique({ where: { code: settings.map }, select: { id: true } });
+    if (!map) return this.partyError(c, "ROOM_BAD_MAP", "Mapa indisponível.");
+    const passwordHash = password ? await this.hasher.hash(password) : null;
+    let row: { id: string; code: string } | null = null;
+    for (let i = 0; i < 6 && !row; i++) {
+      const code = makeRoomCode(() => randomInt(0, 1_000_000) / 1_000_000);
+      if (this.rooms.byCode(code)) continue;
+      try {
+        row = await db.room.create({ data: { code, ownerId: me, mapId: map.id, passwordHash, ...this.roomDbData(settings), players: { create: { userId: me, team: 0 } } }, select: { id: true, code: true } });
+      } catch (e) {
+        if ((e as { code?: string }).code !== "P2002") throw e;
+      }
+    }
+    if (!row) return this.partyError(c, "ROOM_CODE", "Não foi possível gerar um código. Tente de novo.");
+    // A conexão pode ter caído ou entrado em partida enquanto gravávamos.
+    if (this.clients.get(me) !== c || (c.match && !c.match.isEnded)) {
+      this.track(db.room.update({ where: { id: row.id }, data: { status: "CLOSED", closedAt: new Date() } }), "sala abandonada");
+      return;
+    }
+    if (this.rooms.of(me)) this.roomLeave(me);
+    const room = this.rooms.create(row.id, row.code, me, settings, passwordHash);
+    this.log.info(`[game] sala ${room.code} criada por ${c.username}`);
+    this.broadcastRoom(room);
+    this.updatePresence(c);
+  }
+
+  private async roomJoin(c: Client, rawCode: string, password: string | undefined, spectate: boolean) {
+    const me = c.userId!;
+    const code = normalizeRoomCode(rawCode);
+    let room = this.rooms.byCode(code);
+    // Quem foi bloqueado pelo dono não descobre que a sala existe.
+    if (!room || c.blockRel.has(room.ownerId)) return this.partyError(c, "ROOM_NOT_FOUND", "Sala não encontrada. Confira o código.");
+    const already = room.members.get(me);
+    if (already) {
+      // Já está na sala (ex.: voltou do espectador para o lobby e quer assistir de novo).
+      if (already.team === null && room.match && !room.match.isEnded) this.startSpectating(c, room.match);
+      else this.send(c, { t: "room", room: this.rooms.view(room, this.partyInfo) });
+      return;
+    }
+    if (!this.freeForRoom(c)) return;
+    const invited = this.rooms.hasInvite(room, me);
+    if (room.passwordHash && !invited) {
+      if (!password) return this.partyError(c, "ROOM_PASSWORD", "Esta sala tem senha.");
+      const now = Date.now();
+      c.roomPwFails = c.roomPwFails.filter((t) => now - t < 60_000);
+      if (c.roomPwFails.length >= 5) return this.partyError(c, "ROOM_RATE", "Muitas tentativas. Espere um minuto.");
+      const hash = room.passwordHash;
+      if (!(await this.hasher.verify(hash, password))) {
+        c.roomPwFails.push(now);
+        return this.partyError(c, "ROOM_BAD_PASSWORD", "Senha incorreta.");
+      }
+      // A sala pode ter fechado (ou trocado de senha) durante a verificação.
+      room = this.rooms.byCode(code);
+      if (!room || room.passwordHash !== hash) return this.partyError(c, "ROOM_NOT_FOUND", "Sala não encontrada. Confira o código.");
+      if (this.clients.get(me) !== c || (c.match && !c.match.isEnded)) return;
+    }
+    const other = this.rooms.of(me);
+    if (other && other !== room) this.roomLeave(me);
+    const team = this.rooms.join(room, me, { spectate, invited });
+    if (team !== null && typeof team === "object") return this.roomError(c, team);
+    this.track(
+      this.opts.prisma.roomPlayer.upsert({ where: { roomId_userId: { roomId: room.id, userId: me } }, create: { roomId: room.id, userId: me, team }, update: { team, kickedAt: null, joinedAt: new Date() } }),
+      "entrada na sala",
+    );
+    this.broadcastRoom(room);
+    this.updatePresence(c);
+    if (team === null && room.match && !room.match.isEnded) this.startSpectating(c, room.match);
+  }
+
+  private roomLeave(userId: string | null, reason: "left" | "kicked" | "closed" = "left") {
+    if (!userId) return;
+    const room = this.rooms.of(userId);
+    if (!room) return;
+    const c = this.clients.get(userId);
+    if (c) this.stopSpectating(c, false);
+    const { closed, newOwner } = this.rooms.leave(room, userId);
+    if (c) this.send(c, { t: "room", room: null, reason });
+    const db = this.opts.prisma;
+    if (reason === "kicked") this.track(db.roomPlayer.updateMany({ where: { roomId: room.id, userId }, data: { kickedAt: new Date() } }), "remoção da sala");
+    else this.track(db.roomPlayer.deleteMany({ where: { roomId: room.id, userId } }), "saída da sala");
+    if (closed) {
+      this.track(db.room.update({ where: { id: room.id }, data: { status: "CLOSED", closedAt: new Date() } }), "sala vazia");
+    } else {
+      if (newOwner) this.track(db.room.update({ where: { id: room.id }, data: { ownerId: newOwner } }), "novo dono da sala");
+      this.broadcastRoom(room);
+    }
+    if (c) this.updatePresence(c);
+  }
+
+  /** Sala da qual o cliente é dono (ou erro). */
+  private ownedRoom(c: Client): Room | null {
+    const room = this.rooms.of(c.userId!);
+    if (!room) {
+      this.partyError(c, "NO_ROOM", "Você não está em uma sala.");
+      return null;
+    }
+    if (room.ownerId !== c.userId) {
+      this.partyError(c, "ROOM_NOT_OWNER", "Só o dono da sala pode fazer isso.");
+      return null;
+    }
+    return room;
+  }
+
+  private async roomUpdate(c: Client, settings: RoomSettings, password: string | null | undefined) {
+    let room = this.ownedRoom(c);
+    if (!room) return;
+    const bad = this.rooms.checkSettings(room, settings);
+    if (bad) return this.roomError(c, bad);
+    const map = await this.opts.prisma.gameMap.findUnique({ where: { code: settings.map }, select: { id: true } });
+    if (!map) return this.partyError(c, "ROOM_BAD_MAP", "Mapa indisponível.");
+    const hash = password === undefined ? room.passwordHash : password === null ? null : await this.hasher.hash(password);
+    // Confere de novo depois das esperas (alguém pode ter entrado num time ou a partida começado).
+    room = this.rooms.of(c.userId!);
+    if (!room || room.ownerId !== c.userId) return;
+    const again = this.rooms.checkSettings(room, settings);
+    if (again) return this.roomError(c, again);
+    room.settings = settings;
+    room.passwordHash = hash;
+    this.track(this.opts.prisma.room.update({ where: { id: room.id }, data: { ...this.roomDbData(settings), mapId: map.id, passwordHash: hash } }), "regras da sala");
+    this.broadcastRoom(room);
+  }
+
+  private roomTeam(c: Client, target: string, team: RoomTeam) {
+    const room = this.rooms.of(c.userId!);
+    if (!room) return this.partyError(c, "NO_ROOM", "Você não está em uma sala.");
+    if (target !== c.userId && room.ownerId !== c.userId) return this.partyError(c, "ROOM_NOT_OWNER", "Só o dono da sala pode mover outros jogadores.");
+    const e = this.rooms.setTeam(room, target, team);
+    if (e) return this.roomError(c, e);
+    this.track(this.opts.prisma.roomPlayer.updateMany({ where: { roomId: room.id, userId: target }, data: { team } }), "time na sala");
+    this.broadcastRoom(room);
+  }
+
+  private roomKick(c: Client, target: string) {
+    const room = this.ownedRoom(c);
+    if (!room || target === c.userId || !room.members.has(target)) return;
+    if (room.match && !room.match.isEnded && room.match.player(target)) return this.partyError(c, "ROOM_IN_MATCH", "Não dá para remover quem está jogando a partida em andamento.");
+    room.banned.add(target);
+    room.invites.delete(target);
+    this.roomLeave(target, "kicked");
+  }
+
+  private roomLock(c: Client, locked: boolean) {
+    const room = this.ownedRoom(c);
+    if (!room) return;
+    room.locked = locked;
+    this.saveRoomStatus(room);
+    this.broadcastRoom(room);
+  }
+
+  private roomClose(c: Client) {
+    const room = this.ownedRoom(c);
+    if (!room) return;
+    if (room.match && !room.match.isEnded) return this.partyError(c, "ROOM_IN_MATCH", "Espere a partida acabar para encerrar a sala.");
+    const ids = this.rooms.close(room);
+    for (const id of ids) {
+      const m = this.clients.get(id);
+      if (!m) continue;
+      this.stopSpectating(m, false);
+      this.send(m, { t: "room", room: null, reason: "closed" });
+      this.updatePresence(m);
+    }
+    this.track(this.opts.prisma.room.update({ where: { id: room.id }, data: { status: "CLOSED", closedAt: new Date() } }), "sala encerrada");
+  }
+
+  /** Lista pública: só salas não privadas (as privadas só por código ou convite). */
+  private roomList(c: Client) {
+    const rooms = this.rooms
+      .all()
+      .filter((r) => !r.settings.isPrivate && !c.blockRel.has(r.ownerId))
+      .map((r) => this.rooms.listItem(r, this.partyInfo(r.ownerId).username))
+      .sort((a, b) => Number(a.status === "in_match") - Number(b.status === "in_match") || Number(a.locked) - Number(b.locked) || b.players - a.players)
+      .slice(0, 50);
+    this.send(c, { t: "room_list", rooms });
+  }
+
+  private roomInvite(c: Client, targetId: string) {
+    const room = this.rooms.of(c.userId!);
+    if (!room) return this.partyError(c, "NO_ROOM", "Você não está em uma sala.");
+    if (!c.friends.has(targetId) || c.blockRel.has(targetId)) return this.partyError(c, "NOT_FRIEND", "Você só pode convidar amigos.");
+    const target = this.clients.get(targetId);
+    if (!target) return this.partyError(c, "OFFLINE", "Este amigo está offline.");
+    if (room.members.has(targetId)) return this.partyError(c, "ALREADY_IN_ROOM", "Este amigo já está na sala.");
+    if (room.locked) return this.partyError(c, "ROOM_LOCKED", "A sala está trancada.");
+    if (room.banned.has(targetId)) return this.partyError(c, "ROOM_BANNED", "Este jogador foi removido da sala.");
+    const expiresAt = Date.now() + ROOM_INVITE_TTL_MS;
+    room.invites.set(targetId, expiresAt);
+    this.send(target, { t: "room_invite", code: room.code, name: room.settings.name, from: { id: c.userId!, username: c.username }, expiresAt });
+  }
+
+  /** Arsenal na sala: o escolhido em Jogar, filtrado pelas categorias liberadas (completa com armas permitidas). */
+  private roomLoadout(codes: string[] | null, allowed: string[]): WeaponStats[] {
+    const ok = (w: WeaponStats) => allowed.includes(w.category);
+    const chosen = (this.resolveLoadout(codes ?? DEFAULT_LOADOUT) ?? []).filter(ok);
+    if (chosen.length) return chosen;
+    const pool = [...this.weapons.values()].filter(ok).sort((a, b) => a.code.localeCompare(b.code));
+    const picked: WeaponStats[] = [];
+    for (const cat of allowed) {
+      const w = pool.find((x) => x.category === cat);
+      if (w && picked.length < 3) picked.push(w);
+    }
+    return picked;
+  }
+
+  private async roomStart(c: Client) {
+    const room = this.ownedRoom(c);
+    if (!room) return;
+    const bad = this.rooms.canStart(room);
+    if (bad) return this.roomError(c, bad);
+    const players = this.rooms.players(room);
+    for (const m of players) {
+      const mc = this.clients.get(m.userId);
+      if (!mc) return this.partyError(c, "ROOM_PLAYER_OFFLINE", `${this.partyInfo(m.userId).username} está offline.`);
+      if (mc.match && !mc.match.isEnded) return this.partyError(c, "ROOM_PLAYER_BUSY", `${mc.username} ainda está em outra partida.`);
+    }
+    const settings = room.settings;
+    const seats: Array<{ team: 0 | 1; client: Client; seat: MatchSeat }> = [];
+    for (const m of players) {
+      const mc = this.clients.get(m.userId)!;
+      const loadout = this.roomLoadout(mc.loadout, settings.weapons);
+      if (!loadout.length) return this.partyError(c, "ROOM_NO_WEAPONS", "Nenhuma arma disponível nas categorias liberadas.");
+      const cosmetics = await this.cosmeticsFor(mc, loadout);
+      seats.push({ team: m.team as 0 | 1, client: mc, seat: { userId: mc.userId!, username: mc.username, color: mc.color, characterId: mc.characterId, character: mc.character, loadout, cosmetics } });
+    }
+    // Algo mudou durante a leitura dos cosméticos (alguém saiu, trocou de time, regra nova): o dono tenta de novo.
+    const now = this.rooms.of(c.userId!);
+    const same = now === room && room.settings === settings && !room.match && this.rooms.players(room).map((m) => `${m.userId}:${m.team}`).join() === players.map((m) => `${m.userId}:${m.team}`).join();
+    if (!same || seats.some((s) => this.clients.get(s.client.userId!) !== s.client || (s.client.match && !s.client.match.isEnded))) return this.partyError(c, "ROOM_CHANGED", "A sala mudou. Tente começar de novo.");
+
+    const match = new Match({
+      id: randomUUID(),
+      mode: settings.mode,
+      mapCode: settings.map,
+      map: MAP_REGISTRY[settings.map]!,
+      teams: [seats.filter((s) => s.team === 0).map((s) => s.seat), seats.filter((s) => s.team === 1).map((s) => s.seat)],
+      seed: randomInt(1, 2 ** 31),
+      custom: { roomId: room.id, roundsToWin: settings.roundsToWin, rules: { roundTimeSec: settings.roundTimeSec, friendlyFire: settings.friendlyFire, headshotsOnly: settings.headshotsOnly } },
+      onEnd: (r) => this.onMatchEnd(match, r),
+    });
+    this.matches.set(match.id, match);
+    room.match = match;
+    room.invites.clear();
+    for (const s of seats) {
+      s.client.match = match;
+      match.attach(s.client.userId!, this.connFor(s.client));
+      this.updatePresence(s.client);
+    }
+    for (const sp of this.rooms.spectators(room)) {
+      const sc = this.clients.get(sp.userId);
+      if (sc) this.startSpectating(sc, match);
+    }
+    this.saveRoomStatus(room);
+    this.broadcastRoom(room);
+    this.log.info(`[game] sala ${room.code}: partida ${match.id} (${settings.mode}, ${settings.map}) iniciada`);
   }
 
   private queueOf(mode: QueueMode, ranked: boolean) {
@@ -588,6 +991,7 @@ export class GameServer {
       this.send(c, { t: "error", code: "IN_MATCH", message: "Você já está em uma partida." });
       return;
     }
+    if (this.rooms.of(c.userId!)) return this.partyError(c, "IN_ROOM", "Saia da sala personalizada antes de entrar na fila.");
     const loadout = this.resolveLoadout(codes);
     if (!loadout) {
       this.send(c, { t: "error", code: "BAD_LOADOUT", message: "Arsenal inválido." });
@@ -742,6 +1146,10 @@ export class GameServer {
     const userId = c.userId;
     this.dequeue(c);
     if (c.match) c.match.detach(userId);
+    if (c.spectating) {
+      c.spectating.removeSpectator(userId);
+      c.spectating = null;
+    }
     if (this.clients.get(userId) !== c) return;
     this.clients.delete(userId);
     this.updatePresence(c, true, "offline");
@@ -757,6 +1165,11 @@ export class GameServer {
       t.unref();
       this.partyGrace.set(userId, t);
     }
+    const room = this.rooms.of(userId);
+    if (room) {
+      this.broadcastRoom(room);
+      if (!room.match?.player(userId) || room.match.isEnded) this.startRoomGrace(userId);
+    }
   }
 
   private onMatchEnd(match: Match, r: MatchResult) {
@@ -765,6 +1178,14 @@ export class GameServer {
         c.match = null;
         this.updatePresence(c);
       }
+    const room = this.rooms.all().find((x) => x.match === match);
+    if (room) {
+      // A sala volta para o lobby; quem caiu durante a partida ganha o prazo normal para voltar.
+      room.match = null;
+      for (const id of room.members.keys()) if (!this.clients.has(id)) this.startRoomGrace(id);
+      this.broadcastRoom(room);
+      this.saveRoomStatus(room);
+    }
     const p = this.persist(r)
       .catch((e) => this.log.error(`[game] falha ao salvar partida ${r.matchId}`, e))
       .finally(() => this.pendingSaves.delete(p));
@@ -787,7 +1208,8 @@ export class GameServer {
         data: {
           id: r.matchId,
           mode: MODES[r.mode].db,
-          type: r.ranked ? "RANKED" : "CASUAL",
+          type: r.ranked ? "RANKED" : r.roomId ? "CUSTOM" : "CASUAL",
+          roomId: r.roomId,
           seasonId: season?.id ?? null,
           status: "FINISHED",
           mapId: map.id,
@@ -822,7 +1244,8 @@ export class GameServer {
           events: { create: r.events.map((e) => ({ tick: e.tick, round: e.round, type: e.type, actorId: e.actorId ?? null, targetId: e.targetId ?? null, data: e.data })) },
         },
       });
-      for (const p of r.players) {
+      // Partida de sala personalizada fica no histórico, mas não mexe nas estatísticas do perfil (regras livres).
+      for (const p of r.roomId ? [] : r.players) {
         const res = resultFor(p.team, p.abandoned);
         await tx.userProfile.update({
           where: { userId: p.id },
