@@ -22,6 +22,7 @@ import { StripeGateway, type PaymentGateway } from "./modules/economy/payments.j
 import { healthRoutes } from "./modules/health/health.routes.js";
 import { RedisSocialBus, type SocialBus } from "./modules/social/bus.js";
 import { SocialService } from "./modules/social/social.service.js";
+import { progressionRoutes } from "./modules/progression/progression.routes.js";
 import { socialRoutes } from "./modules/social/social.routes.js";
 
 declare module "fastify" {
@@ -116,6 +117,7 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   const payments = deps.payments !== undefined ? deps.payments : config.STRIPE_SECRET_KEY ? new StripeGateway(config.STRIPE_SECRET_KEY, config.STRIPE_WEBHOOK_SECRET) : null;
   if (!payments) app.log.warn("Stripe não configurada: compra de VANTA COINS desativada.");
   await app.register(economyRoutes, { payments });
+  await app.register(progressionRoutes);
   await app.register(socialRoutes, { social: new SocialService(prisma, socialBus) });
 
   return app;

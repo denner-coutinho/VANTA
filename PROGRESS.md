@@ -237,7 +237,7 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 | **Regras contra abuso do espectador**: só em salas (fila e ranqueado não aceitam), quem joga ou jogou a partida não pode assisti-la, e durante a partida o chat da sala é só entre espectadores | ✅ | Testes |
 | Chat da sala, presença "Em sala" para amigos, 30 s para voltar se cair, fila bloqueada enquanto está numa sala | ✅ | Testes + E2E |
 
-**Testes:** 124 no servidor (15 novos), 86 no shared (2 novos), 11 no cliente + **E2E de salas com três navegadores** (`scripts/e2e-rooms.mjs`, 9 etapas) + E2E social (11/11) e multiplayer (11/11) repetidos. O E2E de salas passou em 2 de 3 execuções: a que falhou rodou junto com outros E2Es pesados e não deixou erro de página nem de servidor; as duas execuções sozinhas passaram.
+**Testes:** 119 no servidor (10 novos), 86 no shared (2 novos), 11 no cliente + **E2E de salas com três navegadores** (`scripts/e2e-rooms.mjs`, 9 etapas) + E2E social (11/11) e multiplayer (11/11) repetidos. O E2E de salas passou em 2 de 3 execuções: a que falhou rodou junto com outros E2Es pesados e não deixou erro de página nem de servidor; as duas execuções sozinhas passaram.
 
 #### Limites honestos da parte 2
 - **Espectador só em salas personalizadas.** Assistir partidas da fila ou do ranqueado (ex.: de um amigo) não existe: no ranqueado seria um risco de passar informação, e o atraso fixo de 3 s é uma escolha para salas casuais.
@@ -246,8 +246,31 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **Salas vivem num processo de jogo.** Reiniciar o servidor de jogo encerra as salas abertas (o banco marca como encerradas). Com vários processos, precisa ir para o Redis (Fase 8).
 - **O dono não pode encerrar a sala nem remover jogadores durante a partida** (só espectadores), para não estragar a partida em andamento.
 
-### Partes 3 a 5 ⏳
-XP, missões, conquistas, medalhas, títulos, eventos, cartão de jogador, clãs e perfil público · replays, kill cam e apresentação do MVP · painel administrativo e teclas remapeáveis.
+### Parte 3 — Progressão ✅ (15/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **XP por partida calculado no servidor** ao gravar a partida: 100 base, +150 vitória (ou +75 empate), +20 por abate, +10 por assistência, +5 por headshot, +100 MVP, teto de 1.500. Quem abandona ganha 0. O cliente não manda nada: só recebe o resultado | ✅ | `shared/progression.test.ts` + `test/progression.test.ts` + E2E (+250 XP conferido na tela e no banco) |
+| **Nível** a partir do XP total, com barra no menu e na tela de Progresso; **XP e subida de nível no resultado** da partida, com medalhas, missões concluídas e conquistas | ✅ | E2E + captura 52 |
+| **7 medalhas** calculadas no servidor a partir dos eventos da partida: MVP, Ace (eliminou sozinho o time adversário de 2 ou mais num round), Sangue frio (venceu o round como último vivo contra 2 ou mais), Abertura (3 primeiras eliminações de round), Caçador de cabeças, Precisão e Impecável (venceu sem morrer). Gravadas na partida e somadas no perfil | ✅ | Testes |
+| **Missões diárias e semanais** (8 no seed) com progresso automático a cada partida e **resgate manual**: XP + VANTA COINS pelo livro-razão (idempotente: resgatar duas vezes não paga duas vezes). Períodos no horário de Brasília (diária renova à meia-noite, semanal na segunda) | ✅ | Testes + E2E + captura 54 |
+| **Missões de evento** aparecem só enquanto o evento está ativo, com período próprio | ⚠️ código pronto | Sem teste automatizado com evento ativo (não há evento no seed); entra no teste quando o painel puder criar eventos (parte 5) |
+| **Conquistas** (10 no seed) por totais da carreira (abates, vitórias, partidas, medalhas, nível), com XP e **título** de recompensa | ✅ | Testes + E2E + captura 53 |
+| **Títulos**: só dá para escolher os que foram desbloqueados (o servidor confere) | ✅ | Teste + E2E |
+| **Histórico de progressão**: cada ganho de XP (partida, missão, conquista) com nível depois. Uma partida nunca dá XP duas vezes (chave única) | ✅ | Testes + E2E |
+
+**Testes:** 122 no servidor (3 novos), 90 no shared (4 novos), 11 no cliente + **E2E de progressão com dois navegadores** (`scripts/e2e-progression.mjs`, 8 etapas: partida casual real, XP no resultado e no banco, quem abandona fica com 0, resgate de missão, conquista, histórico, título).
+
+**Correção da parte 2:** o relatório anterior dizia 124 testes no servidor; o número certo era 119 (já corrigido acima).
+
+#### Limites honestos da parte 3
+- **Partidas de sala não dão XP, medalhas nem progresso de missão**, de propósito: com regras livres (1 round, só um jogador) seria fácil "farmar".
+- **Não há recompensa por nível** além do próprio nível (sem itens grátis por nível ainda). Recompensas vêm de missões e conquistas.
+- **Eventos especiais** já existem no banco e as missões de evento funcionam, mas criar e editar eventos só vai ter tela no painel administrativo (parte 5). Hoje não há evento ativo no seed.
+- **Ace e Sangue frio só existem com 2 ou mais adversários**, então não aparecem no 1v1.
+
+### Partes 4 e 5 ⏳ (e o restante da 3: clãs, cartão do jogador, perfil público e ranking)
+Clãs, cartão de jogador, perfil público, rankings por modo e temporada · replays, kill cam e apresentação do MVP · painel administrativo e teclas remapeáveis.
 
 ## Fase 8 ⏳
 Finalização (carga, segurança, Docker, CI, deploy).

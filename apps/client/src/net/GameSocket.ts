@@ -1,4 +1,4 @@
-import { GAME_PROTOCOL_VERSION, type ClientMessage, type MatchInfo, type QueueMode, type RankedResultWire, type RoomView, type ServerMessage, type SpectatorInfo } from "@vanta/shared";
+import { GAME_PROTOCOL_VERSION, type ClientMessage, type MatchInfo, type QueueMode, type MatchProgressWire, type RankedResultWire, type RoomView, type ServerMessage, type SpectatorInfo } from "@vanta/shared";
 import { api } from "../api/client";
 
 type Listener = (m: ServerMessage) => void;
@@ -22,6 +22,8 @@ class GameSocket {
   inMatch = false;
   /** Último resultado ranqueado gravado pelo servidor (pode chegar logo depois do fim da partida). */
   rankedResult: RankedResultWire | null = null;
+  /** XP, medalhas e missões da última partida (chega logo depois de gravada). */
+  progress: MatchProgressWire | null = null;
   /** Sala personalizada atual e a partida que está assistindo (as telas montam com o último estado). */
   room: RoomView | null = null;
   spectate: SpectatorInfo | null = null;
@@ -79,6 +81,9 @@ class GameSocket {
         this.match = msg.info;
         this.inMatch = true;
         this.rankedResult = null;
+        this.progress = null;
+      } else if (msg.t === "progress") {
+        this.progress = msg;
       } else if (msg.t === "ranked_result") {
         this.rankedResult = msg;
       } else if (msg.t === "left_match") {

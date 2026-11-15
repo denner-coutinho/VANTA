@@ -202,38 +202,40 @@ model User {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  profile              UserProfile?
-  wallet               Wallet?
-  sessions             AuthSession[]
-  emailTokens          EmailVerificationToken[]
-  resetTokens          PasswordResetToken[]
-  inventory            Inventory[]
-  paymentOrders        PaymentOrder[]
-  matchPlayers         MatchPlayer[]
-  rankedRatings        RankedRating[]
-  rankHistory          RankHistory[]
-  roomsOwned           Room[]                   @relation("RoomOwner")
-  roomPlayers          RoomPlayer[]
-  friendsA             Friend[]                 @relation("FriendA")
-  friendsB             Friend[]                 @relation("FriendB")
-  friendRequestsSent   FriendRequest[]          @relation("FriendRequestFrom")
-  friendRequestsRecv   FriendRequest[]          @relation("FriendRequestTo")
-  blocks               UserBlock[]              @relation("Blocker")
-  blockedBy            UserBlock[]              @relation("Blocked")
-  mutes                UserMute[]               @relation("Muter")
-  mutedBy              UserMute[]               @relation("Muted")
-  clanMembership       ClanMember?
-  clansOwned           Clan[]                   @relation("ClanOwner")
-  missions             UserMission[]
-  achievements         UserAchievement[]
-  reportsFiled         Report[]                 @relation("Reporter")
-  reportsAgainst       Report[]                 @relation("Reported")
-  reportsHandled       Report[]                 @relation("ReportHandler")
-  bans                 Ban[]                    @relation("BanTarget")
-  bansIssued           Ban[]                    @relation("BanIssuer")
-  notifications        Notification[]
-  adminActions         AdminAuditLog[]
-  securityEvents       SecurityEvent[]
+  profile            UserProfile?
+  wallet             Wallet?
+  sessions           AuthSession[]
+  emailTokens        EmailVerificationToken[]
+  resetTokens        PasswordResetToken[]
+  inventory          Inventory[]
+  paymentOrders      PaymentOrder[]
+  matchPlayers       MatchPlayer[]
+  rankedRatings      RankedRating[]
+  rankHistory        RankHistory[]
+  roomsOwned         Room[]                   @relation("RoomOwner")
+  roomPlayers        RoomPlayer[]
+  friendsA           Friend[]                 @relation("FriendA")
+  friendsB           Friend[]                 @relation("FriendB")
+  friendRequestsSent FriendRequest[]          @relation("FriendRequestFrom")
+  friendRequestsRecv FriendRequest[]          @relation("FriendRequestTo")
+  blocks             UserBlock[]              @relation("Blocker")
+  blockedBy          UserBlock[]              @relation("Blocked")
+  mutes              UserMute[]               @relation("Muter")
+  mutedBy            UserMute[]               @relation("Muted")
+  clanMembership     ClanMember?
+  clansOwned         Clan[]                   @relation("ClanOwner")
+  missions           UserMission[]
+  achievements       UserAchievement[]
+  reportsFiled       Report[]                 @relation("Reporter")
+  reportsAgainst     Report[]                 @relation("Reported")
+  reportsHandled     Report[]                 @relation("ReportHandler")
+  bans               Ban[]                    @relation("BanTarget")
+  bansIssued         Ban[]                    @relation("BanIssuer")
+  notifications      Notification[]
+  adminActions       AdminAuditLog[]
+  securityEvents     SecurityEvent[]
+  medals             UserMedal[]
+  xpGrants           XpGrant[]
 
   @@index([status])
   @@index([createdAt])
@@ -302,121 +304,121 @@ model SecurityEvent {
 }
 
 model UserProfile {
-  userId          String    @id
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String     @id
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   displayName     String
-  bio             String?   @db.VarChar(280)
-  level           Int       @default(1)
-  totalXp         Int       @default(0)
+  bio             String?    @db.VarChar(280)
+  level           Int        @default(1)
+  totalXp         Int        @default(0)
   title           String?
-  avatarKey       String    @default("default")
-  bannerKey       String    @default("default")
-  playerCardKey   String    @default("default")
+  avatarKey       String     @default("default")
+  bannerKey       String     @default("default")
+  playerCardKey   String     @default("default")
   /// Personagem selecionado no menu/partida.
   mainCharacterId String?
   mainCharacter   Character? @relation(fields: [mainCharacterId], references: [id], onDelete: SetNull)
   /// Estatísticas agregadas (atualizadas pelo servidor ao final de cada partida).
-  matchesPlayed   Int       @default(0)
-  wins            Int       @default(0)
-  losses          Int       @default(0)
-  kills           Int       @default(0)
-  deaths          Int       @default(0)
-  assists         Int       @default(0)
-  headshots       Int       @default(0)
-  shotsFired      Int       @default(0)
-  shotsHit        Int       @default(0)
-  mvpCount        Int       @default(0)
+  matchesPlayed   Int        @default(0)
+  wins            Int        @default(0)
+  losses          Int        @default(0)
+  kills           Int        @default(0)
+  deaths          Int        @default(0)
+  assists         Int        @default(0)
+  headshots       Int        @default(0)
+  shotsFired      Int        @default(0)
+  shotsHit        Int        @default(0)
+  mvpCount        Int        @default(0)
   /// Configurações do jogo (sensibilidade, gráficos, áudio, keybinds) — validadas no servidor.
-  settings        Json      @default("{}")
-  updatedAt       DateTime  @updatedAt
+  settings        Json       @default("{}")
+  updatedAt       DateTime   @updatedAt
 }
 
 // ─────────────────────────── Conteúdo do jogo ───────────────────────────
 
 model Character {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  name        String
-  role        String
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  role         String
   /// História e personalidade (texto de apresentação).
-  lore        String
-  personality String
+  lore         String
+  personality  String
   primaryColor String
   /// Chave do modelo 3D e conjunto de animações no cliente (ex.: "operator_base").
-  modelKey    String
-  rigKey      String   @default("vanta_humanoid_v1")
-  isDefault   Boolean  @default(false)
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  modelKey     String
+  rigKey       String   @default("vanta_humanoid_v1")
+  isDefault    Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  skins    CharacterSkin[]
-  profiles UserProfile[]
+  skins        CharacterSkin[]
+  profiles     UserProfile[]
   matchPlayers MatchPlayer[]
 }
 
 /// Arma. Os atributos de combate aqui são a fonte autoritativa usada pelo servidor de jogo.
 model Weapon {
-  id              String         @id @default(cuid())
-  code            String         @unique
-  name            String
-  category        WeaponCategory
-  description     String
-  damage          Int
-  headshotMult    Float          @default(2.0)
+  id             String         @id @default(cuid())
+  code           String         @unique
+  name           String
+  category       WeaponCategory
+  description    String
+  damage         Int
+  headshotMult   Float          @default(2.0)
   /// Disparos por minuto.
-  fireRateRpm     Int
-  magazineSize    Int
-  reserveAmmo     Int
-  reloadMs        Int
+  fireRateRpm    Int
+  magazineSize   Int
+  reserveAmmo    Int
+  reloadMs       Int
   /// Alcance efetivo em metros (o dano cai depois disso).
-  rangeM          Float
+  rangeM         Float
   /// Dispersão base em graus (parado, mirando).
-  spreadDeg       Float
+  spreadDeg      Float
   /// Intensidade do recuo vertical (unidade de jogo).
-  recoil          Float
+  recoil         Float
   /// Multiplicador de velocidade de movimento ao carregar a arma.
-  moveSpeedMult   Float          @default(1.0)
-  pelletsPerShot  Int            @default(1)
-  modelKey        String
-  soundKey        String
-  isActive        Boolean        @default(true)
-  sortOrder       Int            @default(0)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  moveSpeedMult  Float          @default(1.0)
+  pelletsPerShot Int            @default(1)
+  modelKey       String
+  soundKey       String
+  isActive       Boolean        @default(true)
+  sortOrder      Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   skins WeaponSkin[]
 }
 
 model GameMap {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  name        String
-  description String
+  id             String     @id @default(cuid())
+  code           String     @unique
+  name           String
+  description    String
   /// Chave do cenário no cliente/servidor (geometria e colisão).
-  sceneKey    String
+  sceneKey       String
   supportedModes GameMode[]
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive       Boolean    @default(true)
+  sortOrder      Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   matches Match[]
   rooms   Room[]
 }
 
 model WeaponSkin {
-  id        String   @id @default(cuid())
+  id        String     @id @default(cuid())
   weaponId  String
-  weapon    Weapon   @relation(fields: [weaponId], references: [id], onDelete: Cascade)
+  weapon    Weapon     @relation(fields: [weaponId], references: [id], onDelete: Cascade)
   storeItem StoreItem?
-  code      String   @unique
+  code      String     @unique
   name      String
   rarity    Rarity
   /// Parâmetros visuais do material (cores, padrão, emissão) — interpretados pelo cliente.
   material  Json
-  createdAt DateTime @default(now())
+  createdAt DateTime   @default(now())
 
   @@index([weaponId])
 }
@@ -438,8 +440,8 @@ model CharacterSkin {
 
 /// Item vendável/obtível. Cada item cosmético (skin, emblema, spray...) tem um StoreItem.
 model StoreItem {
-  id              String    @id @default(cuid())
-  code            String    @unique
+  id              String         @id @default(cuid())
+  code            String         @unique
   type            ItemType
   name            String
   description     String
@@ -448,17 +450,17 @@ model StoreItem {
   priceVc         Int?
   imageKey        String
   preview3dKey    String?
-  weaponSkinId    String?   @unique
-  weaponSkin      WeaponSkin? @relation(fields: [weaponSkinId], references: [id], onDelete: Cascade)
-  characterSkinId String?   @unique
+  weaponSkinId    String?        @unique
+  weaponSkin      WeaponSkin?    @relation(fields: [weaponSkinId], references: [id], onDelete: Cascade)
+  characterSkinId String?        @unique
   characterSkin   CharacterSkin? @relation(fields: [characterSkinId], references: [id], onDelete: Cascade)
   seasonId        String?
-  season          RankedSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  season          RankedSeason?  @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   availableFrom   DateTime?
   availableUntil  DateTime?
-  isActive        Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   inventory Inventory[]
 
@@ -498,35 +500,35 @@ model Wallet {
 
 /// Razão contábil somente-inserção. Créditos positivos, débitos negativos.
 model WalletTransaction {
-  id             String       @id @default(cuid())
+  id             String        @id @default(cuid())
   walletUserId   String
-  wallet         Wallet       @relation(fields: [walletUserId], references: [userId], onDelete: Restrict)
+  wallet         Wallet        @relation(fields: [walletUserId], references: [userId], onDelete: Restrict)
   type           WalletTxType
   amount         Int
   balanceAfter   Int
   /// Chave de idempotência (ex.: "stripe:checkout:cs_123", "store:<userId>:<itemId>").
-  idempotencyKey String       @unique
+  idempotencyKey String        @unique
   paymentOrderId String?
   paymentOrder   PaymentOrder? @relation(fields: [paymentOrderId], references: [id], onDelete: Restrict)
   description    String
   meta           Json?
-  createdAt      DateTime     @default(now())
+  createdAt      DateTime      @default(now())
 
   @@index([walletUserId, createdAt])
 }
 
 /// Pacotes de VC configuráveis pelo painel administrativo.
 model CoinPackage {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  coins       Int
-  bonusCoins  Int      @default(0)
-  priceCents  Int
-  currency    String   @default("BRL")
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  code       String   @unique
+  coins      Int
+  bonusCoins Int      @default(0)
+  priceCents Int
+  currency   String   @default("BRL")
+  isActive   Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   orders PaymentOrder[]
 }
@@ -553,7 +555,7 @@ model PaymentOrder {
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
-  transactions WalletTransaction[]
+  transactions  WalletTransaction[]
   webhookEvents PaymentWebhookEvent[]
 
   @@index([userId, createdAt])
@@ -579,28 +581,28 @@ model PaymentWebhookEvent {
 // ─────────────────────────── Partidas ───────────────────────────
 
 model Match {
-  id           String      @id @default(cuid())
-  mode         GameMode
-  type         MatchType
-  status       MatchStatus @default(WAITING)
-  mapId        String
-  map          GameMap     @relation(fields: [mapId], references: [id], onDelete: Restrict)
-  seasonId     String?
-  season       RankedSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
-  roomId       String?
-  room         Room?       @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  id               String        @id @default(cuid())
+  mode             GameMode
+  type             MatchType
+  status           MatchStatus   @default(WAITING)
+  mapId            String
+  map              GameMap       @relation(fields: [mapId], references: [id], onDelete: Restrict)
+  seasonId         String?
+  season           RankedSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  roomId           String?
+  room             Room?         @relation(fields: [roomId], references: [id], onDelete: SetNull)
   /// ID da sala no servidor de jogo (Colyseus).
   gameServerRoomId String?
-  roundsToWin  Int
-  scoreTeamA   Int         @default(0)
-  scoreTeamB   Int         @default(0)
-  winnerTeam   Int?
-  mvpUserId    String?
-  startedAt    DateTime?
-  endedAt      DateTime?
+  roundsToWin      Int
+  scoreTeamA       Int           @default(0)
+  scoreTeamB       Int           @default(0)
+  winnerTeam       Int?
+  mvpUserId        String?
+  startedAt        DateTime?
+  endedAt          DateTime?
   /// Hash do fluxo de eventos (replay) para detectar adulteração.
-  replayHash   String?
-  createdAt    DateTime    @default(now())
+  replayHash       String?
+  createdAt        DateTime      @default(now())
 
   players MatchPlayer[]
   events  MatchEvent[]
@@ -610,32 +612,34 @@ model Match {
 }
 
 model MatchPlayer {
-  id           String       @id @default(cuid())
-  matchId      String
-  match        Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  userId       String
-  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
-  team         Int
-  characterId  String?
-  character    Character?   @relation(fields: [characterId], references: [id], onDelete: SetNull)
-  result       MatchResult?
-  kills        Int          @default(0)
-  deaths       Int          @default(0)
-  assists      Int          @default(0)
-  headshots    Int          @default(0)
-  damageDealt  Int          @default(0)
-  shotsFired   Int          @default(0)
-  shotsHit     Int          @default(0)
-  score        Int          @default(0)
-  isMvp        Boolean      @default(false)
-  abandoned    Boolean      @default(false)
+  id          String       @id @default(cuid())
+  matchId     String
+  match       Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  team        Int
+  characterId String?
+  character   Character?   @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  result      MatchResult?
+  kills       Int          @default(0)
+  deaths      Int          @default(0)
+  assists     Int          @default(0)
+  headshots   Int          @default(0)
+  damageDealt Int          @default(0)
+  shotsFired  Int          @default(0)
+  shotsHit    Int          @default(0)
+  score       Int          @default(0)
+  isMvp       Boolean      @default(false)
+  abandoned   Boolean      @default(false)
   /// Variação de pontos de patente / MMR aplicada ao final (auditoria).
-  pointsDelta  Int?
-  mmrBefore    Float?
-  mmrAfter     Float?
-  xpEarned     Int          @default(0)
-  joinedAt     DateTime     @default(now())
-  leftAt       DateTime?
+  pointsDelta Int?
+  mmrBefore   Float?
+  mmrAfter    Float?
+  xpEarned    Int          @default(0)
+  /// Medalhas ganhas nesta partida (códigos de MEDALS em @vanta/shared).
+  medals      String[]     @default([])
+  joinedAt    DateTime     @default(now())
+  leftAt      DateTime?
 
   @@unique([matchId, userId])
   @@index([userId, joinedAt])
@@ -643,16 +647,16 @@ model MatchPlayer {
 
 /// Eventos de partida (kills, rounds, disparos relevantes). Base para replay e kill cam.
 model MatchEvent {
-  id       BigInt   @id @default(autoincrement())
-  matchId  String
-  match    Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  id        BigInt   @id @default(autoincrement())
+  matchId   String
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
   /// Tick do servidor em que o evento ocorreu.
-  tick     Int
-  round    Int
-  type     String
-  actorId  String?
-  targetId String?
-  data     Json
+  tick      Int
+  round     Int
+  type      String
+  actorId   String?
+  targetId  String?
+  data      Json
   createdAt DateTime @default(now())
 
   @@index([matchId, tick])
@@ -661,38 +665,38 @@ model MatchEvent {
 // ─────────────────────────── Ranqueado ───────────────────────────
 
 model Rank {
-  id        String  @id @default(cuid())
-  order     Int     @unique
-  code      String  @unique
-  name      String
-  tier      String
-  division  Int?
-  minPoints Int
-  color     String
-  glow      String
+  id                String  @id @default(cuid())
+  order             Int     @unique
+  code              String  @unique
+  name              String
+  tier              String
+  division          Int?
+  minPoints         Int
+  color             String
+  glow              String
   /// Recompensa ao final da temporada para quem termina nesta patente.
   rewardStoreItemId String?
   rewardCoins       Int     @default(0)
 }
 
 model RankedSeason {
-  id          String    @id @default(cuid())
-  number      Int       @unique
-  name        String
-  startsAt    DateTime
-  endsAt      DateTime
-  isActive    Boolean   @default(false)
+  id                  String    @id @default(cuid())
+  number              Int       @unique
+  name                String
+  startsAt            DateTime
+  endsAt              DateTime
+  isActive            Boolean   @default(false)
   /// Fração dos pontos mantida na próxima temporada (reinício parcial).
-  carryOverFactor Float @default(0.5)
-  placementMatches Int  @default(5)
-  closedAt    DateTime?
+  carryOverFactor     Float     @default(0.5)
+  placementMatches    Int       @default(5)
+  closedAt            DateTime?
   /// Snapshot dos melhores jogadores publicado ao fechar a temporada.
   leaderboardSnapshot Json?
-  createdAt   DateTime  @default(now())
+  createdAt           DateTime  @default(now())
 
-  ratings    RankedRating[]
-  matches    Match[]
-  storeItems StoreItem[]
+  ratings     RankedRating[]
+  matches     Match[]
+  storeItems  StoreItem[]
   rankHistory RankHistory[]
 }
 
@@ -799,13 +803,13 @@ model Friend {
 }
 
 model FriendRequest {
-  id         String              @id @default(cuid())
-  fromId     String
-  from       User                @relation("FriendRequestFrom", fields: [fromId], references: [id], onDelete: Cascade)
-  toId       String
-  to         User                @relation("FriendRequestTo", fields: [toId], references: [id], onDelete: Cascade)
-  status     FriendRequestStatus @default(PENDING)
-  createdAt  DateTime            @default(now())
+  id          String              @id @default(cuid())
+  fromId      String
+  from        User                @relation("FriendRequestFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId        String
+  to          User                @relation("FriendRequestTo", fields: [toId], references: [id], onDelete: Cascade)
+  status      FriendRequestStatus @default(PENDING)
+  createdAt   DateTime            @default(now())
   respondedAt DateTime?
 
   @@index([toId, status])
@@ -869,22 +873,22 @@ model ClanMember {
 // ─────────────────────────── Progressão ───────────────────────────
 
 model Mission {
-  id           String        @id @default(cuid())
-  code         String        @unique
-  name         String
-  description  String
-  period       MissionPeriod
+  id                String        @id @default(cuid())
+  code              String        @unique
+  name              String
+  description       String
+  period            MissionPeriod
   /// Objetivo interpretado pelo servidor (ex.: {"stat":"kills","target":20,"mode":"any"}).
-  objective    Json
-  rewardXp     Int           @default(0)
-  rewardCoins  Int           @default(0)
+  objective         Json
+  rewardXp          Int           @default(0)
+  rewardCoins       Int           @default(0)
   rewardStoreItemId String?
-  eventId      String?
-  event        GameEvent?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  isActive     Boolean       @default(true)
-  startsAt     DateTime?
-  endsAt       DateTime?
-  createdAt    DateTime      @default(now())
+  eventId           String?
+  event             GameEvent?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  isActive          Boolean       @default(true)
+  startsAt          DateTime?
+  endsAt            DateTime?
+  createdAt         DateTime      @default(now())
 
   userMissions UserMission[]
 }
@@ -930,6 +934,34 @@ model UserAchievement {
   unlockedAt    DateTime?
 
   @@unique([userId, achievementId])
+}
+
+/// Total de cada medalha por jogador (a lista por partida fica em MatchPlayer.medals).
+model UserMedal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code   String
+  count  Int    @default(0)
+
+  @@unique([userId, code])
+}
+
+/// Histórico de XP: cada ganho com a origem (partida, missão, conquista).
+model XpGrant {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount     Int
+  /// MATCH | MISSION | ACHIEVEMENT
+  source     String
+  /// Id da partida, missão ou conquista.
+  refId      String
+  levelAfter Int
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, source, refId])
+  @@index([userId, createdAt])
 }
 
 /// Evento temporário (ex.: "Semana Orbital"), com missões e recompensas próprias.

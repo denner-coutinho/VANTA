@@ -15,6 +15,7 @@ import { TrainingScreen } from "./screens/TrainingScreen";
 import { RoomsScreen } from "./screens/RoomsScreen";
 import { RoomLobby } from "./screens/RoomLobby";
 import { SpectateScreen } from "./screens/SpectateScreen";
+import { ProgressScreen } from "./screens/ProgressScreen";
 import { InviteStack } from "./social/PartyWidget";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -49,6 +50,7 @@ export function App() {
       <Route path="/partida" element={<RequireAuth><MatchScreen /></RequireAuth>} />
       <Route path="/salas" element={<RequireAuth><RoomsScreen /></RequireAuth>} />
       <Route path="/sala" element={<RequireAuth><RoomLobby /></RequireAuth>} />
+      <Route path="/progresso" element={<RequireAuth><ProgressScreen /></RequireAuth>} />
       <Route path="/assistir" element={<RequireAuth><SpectateScreen /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
