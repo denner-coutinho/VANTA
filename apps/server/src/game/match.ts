@@ -188,6 +188,12 @@ export class Match {
     return this.ended;
   }
 
+  /** Mensagens de chat da partida ficam no registro (prova para a moderação em denúncias de chat ofensivo). */
+  recordChat(userId: string, channel: "all" | "team", text: string) {
+    if (this.ended) return;
+    this.log.push({ tick: this.tick, round: this.round, type: "chat", actorId: userId, data: { channel, text } });
+  }
+
   player(userId: string) {
     return this.players.find((p) => p.userId === userId);
   }
