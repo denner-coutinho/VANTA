@@ -223,8 +223,31 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **Presença e grupos vivem na memória de um processo de jogo.** Com vários processos, a presença e os grupos precisam passar para o Redis (Fase 8). Os eventos da API já passam pelo Redis.
 - **E2E de mapas (5 partidas, ~12 min) não foi repetido** nesta parte: a mudança na fila é coberta pelos E2E multiplayer e ranqueado e pelos testes da fila.
 
-### Partes 2 a 5 ⏳
-Salas personalizadas e espectador · XP, missões, conquistas, medalhas, títulos, eventos, cartão de jogador, clãs e perfil público · replays, kill cam e apresentação do MVP · painel administrativo e teclas remapeáveis.
+### Parte 2 — Salas personalizadas e espectador ✅ (15/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **Criar sala** com nome, modo (1v1/2v2/3v3 = quantidade de jogadores), mapa, rounds para vencer (1–15), duração do round (30–300 s), armas liberadas por categoria, fogo amigo, só headshot, espectadores sim/não, pública ou privada, senha opcional | ✅ | `test/rooms.test.ts` + E2E + captura 45 |
+| **Código de 6 caracteres** para compartilhar (sem letras/números ambíguos), copiar com um clique; entrar por código | ✅ | Testes + E2E |
+| **Lista pública** com nome, código, modo, mapa, jogadores/limite, espectadores, situação (lobby, em partida, trancada), dono e aviso de senha; salas privadas não aparecem | ✅ | Teste + E2E + captura 46 |
+| **Senha** com hash Argon2id no servidor, limite de 5 tentativas erradas por minuto; **convite de amigo** (2 min) dispensa a senha | ✅ | Testes + E2E + captura 47 |
+| **Dono (admin)**: mover jogadores entre times e espectadores, remover (não volta nem com código e senha), trancar a entrada, editar regras antes da partida, começar e encerrar a sala; se sair, a sala passa para outro | ✅ | Testes + E2E + captura 48 |
+| **Partida real no servidor autoritativo** com as regras da sala (rounds, tempo, fogo amigo, só headshot, arsenal filtrado); volta ao lobby no fim; gravada como `CUSTOM` ligada à sala, sem contar no perfil nem no ranqueado | ✅ | `test/match.test.ts` (5 novos) + `test/rooms.test.ts` + E2E + captura 50 |
+| **Espectador** com transmissão atrasada em 3 s (vê todos, mas não consegue soprar informação útil), até 4 por sala, câmera seguindo um jogador (Q/E) ou livre, placar e vida de todos, resultado final; jogadores veem quantos estão assistindo | ✅ | Testes + E2E + capturas 49 e 51 |
+| **Regras contra abuso do espectador**: só em salas (fila e ranqueado não aceitam), quem joga ou jogou a partida não pode assisti-la, e durante a partida o chat da sala é só entre espectadores | ✅ | Testes |
+| Chat da sala, presença "Em sala" para amigos, 30 s para voltar se cair, fila bloqueada enquanto está numa sala | ✅ | Testes + E2E |
+
+**Testes:** 124 no servidor (15 novos), 86 no shared (2 novos), 11 no cliente + **E2E de salas com três navegadores** (`scripts/e2e-rooms.mjs`, 9 etapas) + E2E social (11/11) e multiplayer (11/11) repetidos. O E2E de salas passou em 2 de 3 execuções: a que falhou rodou junto com outros E2Es pesados e não deixou erro de página nem de servidor; as duas execuções sozinhas passaram.
+
+#### Limites honestos da parte 2
+- **Espectador só em salas personalizadas.** Assistir partidas da fila ou do ranqueado (ex.: de um amigo) não existe: no ranqueado seria um risco de passar informação, e o atraso fixo de 3 s é uma escolha para salas casuais.
+- **"Quantidade de jogadores" vem do modo** (até 2, 4 ou 6). Times desequilibrados são permitidos (basta 1 em cada time), mas não há 4v4 ou 5v5.
+- **Arsenal na sala é o escolhido em Jogar**, trocado automaticamente se a categoria não estiver liberada. Ainda não há escolha de arsenal dentro do lobby.
+- **Salas vivem num processo de jogo.** Reiniciar o servidor de jogo encerra as salas abertas (o banco marca como encerradas). Com vários processos, precisa ir para o Redis (Fase 8).
+- **O dono não pode encerrar a sala nem remover jogadores durante a partida** (só espectadores), para não estragar a partida em andamento.
+
+### Partes 3 a 5 ⏳
+XP, missões, conquistas, medalhas, títulos, eventos, cartão de jogador, clãs e perfil público · replays, kill cam e apresentação do MVP · painel administrativo e teclas remapeáveis.
 
 ## Fase 8 ⏳
 Finalização (carga, segurança, Docker, CI, deploy).
