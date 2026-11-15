@@ -108,7 +108,7 @@ export async function rankedRoutes(app: FastifyInstance) {
     const active = await app.prisma.rankedSeason.findFirst({ where: { isActive: true } });
     if (!active) throw Errors.conflict("NO_SEASON", "Não há temporada em andamento.");
     const closed = await closeSeason(app.prisma, active.id);
-    await app.prisma.adminAuditLog.create({ data: { actorId: req.auth.userId, action: "ranked.season.close", targetType: "RankedSeason", targetId: closed.id, after: { closedAt: closed.closedAt }, ip: req.ip } });
-    return { id: closed.id, number: closed.number, closedAt: closed.closedAt };
+    await app.prisma.adminAuditLog.create({ data: { actorId: req.auth.userId, action: "ranked.season.close", targetType: "RankedSeason", targetId: closed.id, after: { closedAt: closed.closedAt, rewardedPlayers: closed.rewardedPlayers }, ip: req.ip } });
+    return { id: closed.id, number: closed.number, closedAt: closed.closedAt, rewardedPlayers: closed.rewardedPlayers };
   });
 }

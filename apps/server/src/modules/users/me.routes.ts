@@ -1,3 +1,4 @@
+import { equippedCosmetics } from "../economy/store.service.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { levelFromTotalXp, type MeResponse } from "@vanta/shared";
@@ -21,6 +22,7 @@ export async function meRoutes(app: FastifyInstance) {
     const rankOrder = ranks.filter((r) => r.minPoints <= points).at(-1)?.order ?? 1;
     const lvl = levelFromTotalXp(user.profile?.totalXp ?? 0);
 
+    const cosmetics = await equippedCosmetics(app.prisma, user.id);
     const body: MeResponse = {
       user: toPublicUser(user),
       profile: {
@@ -37,6 +39,7 @@ export async function meRoutes(app: FastifyInstance) {
       ranked: activeSeason
         ? { seasonName: activeSeason.name, points, rankOrder, placementMatchesLeft: rating?.placementLeft ?? activeSeason.placementMatches }
         : null,
+      cosmetics,
     };
     return body;
   });

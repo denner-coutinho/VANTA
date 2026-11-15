@@ -9,6 +9,8 @@ import { MainMenu } from "./screens/MainMenu";
 import { PlayScreen } from "./screens/PlayScreen";
 import { MatchScreen } from "./screens/MatchScreen";
 import { RankedScreen } from "./screens/RankedScreen";
+import { StoreScreen } from "./screens/StoreScreen";
+import { InventoryScreen } from "./screens/InventoryScreen";
 import { TrainingScreen } from "./screens/TrainingScreen";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -37,6 +39,8 @@ export function App() {
       <Route path="/treinamento" element={<RequireAuth><TrainingScreen /></RequireAuth>} />
       <Route path="/jogar" element={<RequireAuth><PlayScreen /></RequireAuth>} />
       <Route path="/ranqueado" element={<RequireAuth><RankedScreen /></RequireAuth>} />
+      <Route path="/loja" element={<RequireAuth><StoreScreen /></RequireAuth>} />
+      <Route path="/inventario" element={<RequireAuth><InventoryScreen /></RequireAuth>} />
       <Route path="/partida" element={<RequireAuth><MatchScreen /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

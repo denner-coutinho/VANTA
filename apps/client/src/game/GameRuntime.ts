@@ -31,6 +31,7 @@ import {
   type Vec3,
   type WeaponState,
   type WeaponStats,
+  type WeaponSkinMaterial,
 } from "@vanta/shared";
 import { InputManager } from "./input";
 import { GameAudio } from "./audio";
@@ -162,6 +163,7 @@ export class GameRuntime {
     private settings: GameSettings,
     private onHud: (s: HudState) => void,
     private onEvent: (e: GameEvent) => void,
+    weaponSkins: Record<string, WeaponSkinMaterial> = {},
   ) {
     const q = QUALITY[settings.quality];
     this.renderer = new THREE.WebGLRenderer({ antialias: settings.quality !== "low", powerPreference: "high-performance" });
@@ -225,6 +227,7 @@ export class GameRuntime {
 
     weaponList.forEach((w) => this.weapons.set(w.code, w));
     this.vm = new ViewModel();
+    this.vm.setSkins(weaponSkins);
     this.setLoadout(loadout);
 
     const spawn = mapDef.spawns.A[0]!;

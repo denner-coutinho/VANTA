@@ -1,3 +1,4 @@
+import type { CharacterSkinMaterial, WeaponSkinMaterial } from "../cosmetics.js";
 import { z } from "zod";
 import type { PlayerCommand } from "../game/sim.js";
 import type { Vec3 } from "../game/math.js";
@@ -112,6 +113,13 @@ export interface MatchPlayerInfo {
   character: string;
   loadout: string[];
   connected: boolean;
+  /** Cosméticos equipados (só aparência): skin do operador e skins das armas do arsenal. */
+  cosmetics?: MatchCosmetics;
+}
+
+export interface MatchCosmetics {
+  character: CharacterSkinMaterial | null;
+  weapons: Record<string, WeaponSkinMaterial>;
 }
 
 export interface MatchInfo {

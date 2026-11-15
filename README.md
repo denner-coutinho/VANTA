@@ -57,6 +57,7 @@ node scripts/e2e-training.mjs         # Fase 2: joga o treinamento (tiro, recarg
 node scripts/e2e-multiplayer.mjs      # Fase 3: dois navegadores jogam 1v1 (fila, tiro, reconexão, W.O.)
 node scripts/e2e-maps.mjs             # Fase 4: 5 partidas seguidas, uma em cada mapa, com os 8 operadores e suas animações
 node scripts/e2e-ranked.mjs           # Fase 5: quatro navegadores em duas ranqueadas 1v1 (classificação, PP, bloqueio por abandono, ranking)
+node scripts/e2e-economy.mjs          # Fase 6: loja, compras, inventário, skins no menu e na partida
 ```
 
 O teste E2E precisa do Playwright: `npm i -g playwright && npx playwright install chromium`.
@@ -68,6 +69,16 @@ Todas documentadas em [`.env.example`](.env.example). Regras:
 - Segredos (`JWT_ACCESS_SECRET`, `STRIPE_*`, `SMTP_PASS`) **só no servidor**.
 - No cliente, apenas variáveis `VITE_*` chegam ao navegador — nunca coloque segredos nelas.
 - Em produção o servidor recusa iniciar com o segredo JWT padrão ou sem SMTP.
+
+## Pagamentos (Stripe)
+
+Sem `STRIPE_SECRET_KEY` e `STRIPE_WEBHOOK_SECRET`, a compra de VANTA COINS fica desativada (a tela avisa; nada é simulado). Para ativar:
+
+1. Na Stripe, copie a chave secreta (`sk_test_…` para testes) e crie um endpoint de webhook para `https://SEU_DOMINIO/api/payments/stripe/webhook` com os eventos `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`, `charge.dispute.created` e `charge.dispute.closed`. Copie o segredo de assinatura (`whsec_…`).
+2. Coloque as duas no `.env` do servidor (nunca no cliente) e reinicie a API.
+3. Em desenvolvimento: `stripe listen --forward-to localhost:4000/payments/stripe/webhook` e use o `whsec_` que ele mostrar.
+
+Só o webhook credita moedas. O cartão é digitado na página da Stripe; o jogo não recebe nem guarda dados de cartão.
 
 ## Deploy (preparação)
 

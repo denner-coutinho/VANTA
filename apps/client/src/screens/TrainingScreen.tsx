@@ -6,6 +6,7 @@ import { GameRuntime, type GameEvent, type GameSettings, type HudState } from ".
 import { loadSettings, saveSettings, type LocalSettings } from "./SettingsPanel";
 import { Button } from "../components/ui";
 import { uiSound } from "../audio/ui-sound";
+import { useAuth } from "../auth/AuthContext";
 
 const CATEGORY_LABEL: Record<WeaponStats["category"], string> = { ASSAULT_RIFLE: "Rifle de assalto", SMG: "Submetralhadora", SNIPER: "Sniper", SHOTGUN: "Escopeta", PISTOL: "Pistola" };
 const DEFAULT_LOADOUT = ["VK7_LAMINA", "P9_FAISCA", "LR1_HORIZONTE"];
@@ -20,6 +21,7 @@ interface DamageIndicator { id: number; angle: number }
 interface Feed { id: number; text: string; headshot: boolean }
 
 export function TrainingScreen() {
+  const { me } = useAuth();
   const navigate = useNavigate();
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<GameRuntime | null>(null);
@@ -83,7 +85,7 @@ export function TrainingScreen() {
     if (!weapons || !host.current) return;
     let rt: GameRuntime;
     try {
-      rt = new GameRuntime(host.current, NEON_DISTRICT, weapons, loadout, toGameSettings(settings), setHud, onEvent);
+      rt = new GameRuntime(host.current, NEON_DISTRICT, weapons, loadout, toGameSettings(settings), setHud, onEvent, me?.cosmetics.weapons ?? {});
     } catch (e) {
       setError(`Não foi possível iniciar o 3D (WebGL): ${(e as Error).message}`);
       return;

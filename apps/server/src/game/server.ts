@@ -17,8 +17,10 @@ import {
   type QueueMode,
   type ServerMessage,
   type WeaponStats,
+  type MatchCosmetics,
 } from "@vanta/shared";
 import { Match, type MatchResult, type MatchSeat } from "./match.js";
+import { equippedCosmetics } from "../modules/economy/store.service.js";
 import { applyRankedMatch, getActiveSeason, getOrCreateRating, rankedCooldownSeconds } from "./ranked.js";
 
 export interface GameServerOptions {
@@ -56,6 +58,7 @@ interface QueueEntry {
   since: number;
   /** MMR oculto na temporada (só nas filas ranqueadas). */
   mmr: number;
+  cosmetics: MatchCosmetics;
 }
 
 const queueKey = (mode: QueueMode, ranked: boolean) => `${mode}:${ranked ? "ranked" : "casual"}`;
@@ -308,9 +311,15 @@ export class GameServer {
       this.send(c, { t: "error", code: "BAD_LOADOUT", message: "Arsenal inválido." });
       return;
     }
+    const userId = c.userId!;
+    // Cosméticos equipados (só aparência): skin do operador atual e das armas escolhidas.
+    const equipped = await equippedCosmetics(this.opts.prisma, userId);
+    const cosmetics: MatchCosmetics = {
+      character: equipped.characters[c.character] ?? null,
+      weapons: Object.fromEntries(loadout.filter((w) => equipped.weapons[w.code]).map((w) => [w.code, equipped.weapons[w.code]!])),
+    };
     let mmr = 0;
     if (ranked) {
-      const userId = c.userId!;
       const season = await getActiveSeason(this.opts.prisma);
       if (!season) {
         this.send(c, { t: "error", code: "NO_SEASON", message: "Não há temporada ranqueada em andamento." });
@@ -322,12 +331,12 @@ export class GameServer {
         return;
       }
       mmr = (await getOrCreateRating(this.opts.prisma, season, mode, userId)).mmr;
-      // A conexão pode ter caído ou entrado em partida enquanto consultávamos o banco.
-      if (c.userId !== userId || this.clients.get(userId) !== c || (c.match && !c.match.isEnded)) return;
     }
+    // A conexão pode ter caído ou entrado em partida enquanto consultávamos o banco.
+    if (c.userId !== userId || this.clients.get(userId) !== c || (c.match && !c.match.isEnded)) return;
     this.dequeue(c);
     c.queued = { mode, ranked };
-    this.queueOf(mode, ranked).push({ client: c, loadout, since: Date.now(), mmr });
+    this.queueOf(mode, ranked).push({ client: c, loadout, since: Date.now(), mmr, cosmetics });
     this.tryMatch(mode, ranked);
     this.broadcastQueue(mode, ranked);
   }
@@ -371,7 +380,7 @@ export class GameServer {
         group = q.splice(0, size);
         teams = [group.slice(0, size / 2), group.slice(size / 2)];
       }
-      const seat = (e: QueueEntry): MatchSeat => ({ userId: e.client.userId!, username: e.client.username, color: e.client.color, characterId: e.client.characterId, character: e.client.character, loadout: e.loadout });
+      const seat = (e: QueueEntry): MatchSeat => ({ userId: e.client.userId!, username: e.client.username, color: e.client.color, characterId: e.client.characterId, character: e.client.character, loadout: e.loadout, cosmetics: e.cosmetics });
       const mapCode = this.rotation[this.rotationIndex++ % this.rotation.length]!;
       const map = MAP_REGISTRY[mapCode]!;
       const match = new Match({

@@ -294,3 +294,35 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border: 1px soli
 .ladder-item.on { border-color: var(--c-blue); box-shadow: 0 0 18px rgba(40,123,255,.2); }
 .ranked-ladder > .muted { font-size: 13px; line-height: 1.5; }
 @media (max-width: 900px) { .ranked-grid { grid-template-columns: 1fr; } .ladder { grid-template-columns: repeat(3, 1fr); } }
+
+/* ───── Loja e inventário (Fase 6) ───── */
+.store-note { font-size: 13px; margin: -6px 0 0; max-width: 760px; }
+.wallet-chip { cursor: pointer; }
+.vc-icon.sm { width: 18px; height: 18px; font-size: 8px; display: inline-grid; vertical-align: middle; margin-right: 6px; }
+.vc-icon.lg { width: 44px; height: 44px; font-size: 14px; }
+.store-grid { display: grid; grid-template-columns: 1fr minmax(280px, 360px); gap: 18px; align-items: start; }
+.item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.item-card { display: flex; flex-direction: column; gap: 4px; padding: 10px; text-align: left; color: inherit; font: inherit; cursor: pointer; border: 1px solid var(--c-metal); transition: border-color .15s, transform .15s; }
+.item-card:hover { border-color: var(--c-blue-hi); transform: translateY(-2px); }
+.item-card.on { border-color: var(--c-blue); box-shadow: inset 0 0 0 1px var(--c-blue); }
+.item-card strong { font-size: 14px; line-height: 1.25; }
+.item-card .swatch { height: 64px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+.item-card .season-emblem { align-self: center; }
+.rarity { font-family: var(--f-display); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+.item-card .price { margin-top: auto; font-family: var(--f-display); font-size: 15px; display: flex; align-items: center; color: var(--c-dim); }
+.item-detail { padding: 16px; display: flex; flex-direction: column; gap: 8px; position: sticky; top: 16px; }
+.item-detail h2 { margin: 0; font-size: 22px; letter-spacing: .04em; }
+.cosmetic-preview { height: 260px; background: radial-gradient(ellipse at center, rgba(40,123,255,.18), rgba(9,11,18,.2) 70%); display: grid; place-items: center; }
+.cosmetic-preview canvas { width: 100% !important; height: 100% !important; display: block; }
+.confirm-box { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: rgba(40,123,255,.08); border: 1px solid var(--c-blue); }
+.inv-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.coin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.coin-card { padding: 18px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.coin-card strong { font-family: var(--f-display); font-size: 30px; letter-spacing: .04em; }
+.coin-price { font-size: 15px; color: var(--c-dim); margin-bottom: 6px; }
+.coins-tab { display: flex; flex-direction: column; gap: 14px; }
+.wallet-history { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; overflow-x: auto; }
+.wallet-history td.up { color: var(--c-green); }
+.wallet-history td.down { color: var(--c-red); }
+.wallet-history .sb-table th:nth-child(2), .wallet-history .sb-table td:nth-child(2) { width: 100px; }
+@media (max-width: 900px) { .store-grid { grid-template-columns: 1fr; } .item-detail { position: static; } }

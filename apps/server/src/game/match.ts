@@ -32,6 +32,7 @@ import {
   type WeaponStats,
   type WireOther,
   type WireSelf,
+  type MatchCosmetics,
 } from "@vanta/shared";
 
 export interface Conn {
@@ -46,6 +47,8 @@ export interface MatchSeat {
   /** Código do personagem (modelo e animações no cliente). */
   character: string;
   loadout: WeaponStats[];
+  /** Só aparência; repassado aos clientes. */
+  cosmetics?: MatchCosmetics;
 }
 
 interface HistoryEntry {
@@ -204,7 +207,7 @@ export class Match {
       roundsToWin: this.roundsToWin,
       you: userId,
       yourTeam: me.team,
-      players: this.players.map((p) => ({ id: p.userId, username: p.username, team: p.team, color: p.color, character: p.character, loadout: p.loadout.map((w) => w.code), connected: !!p.conn && !p.abandoned })),
+      players: this.players.map((p) => ({ id: p.userId, username: p.username, team: p.team, color: p.color, character: p.character, loadout: p.loadout.map((w) => w.code), connected: !!p.conn && !p.abandoned, cosmetics: p.cosmetics })),
       lastSeq: me.lastReceived,
       tick: this.tick,
     };
