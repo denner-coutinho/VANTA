@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { CHAT_MAX_LEN, PARTY_MAX } from "@vanta/shared";
 import { useAuth } from "../auth/AuthContext";
 import { useSocial } from "./SocialContext";
@@ -57,18 +58,31 @@ export function PartyWidget({ onInvite }: { onInvite?: () => void }) {
   );
 }
 
-/** Convites de grupo recebidos: aparecem em qualquer tela (menos durante a partida). */
+/** Convites de grupo e de sala recebidos: aparecem em qualquer tela (menos durante a partida). */
 export function InviteStack() {
   const social = useSocial();
+  const navigate = useNavigate();
   const [, setTick] = useState(0);
+  const count = social.invites.length + social.roomInvites.length;
   useEffect(() => {
-    if (!social.invites.length) return;
+    if (!count) return;
     const t = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(t);
-  }, [social.invites.length]);
-  if (!social.invites.length || location.pathname === "/partida") return null;
+  }, [count]);
+  if (!count || location.pathname === "/partida" || location.pathname === "/assistir") return null;
   return (
     <div className="invite-stack" role="status" aria-live="polite">
+      {social.roomInvites.map((i) => (
+        <div key={i.code} className="panel cut cut-sm invite-card" data-testid="room-invite">
+          <span className="label">Convite de sala</span>
+          <strong>{i.from.username} chamou você para “{i.name}”</strong>
+          <span className="muted small">Sala {i.code} · expira em {Math.max(0, Math.ceil((i.expiresAt - Date.now()) / 1000))} s</span>
+          <div className="row-end">
+            <button className="btn-mini ghost" onClick={() => social.respondRoomInvite(i.code, false)}>Recusar</button>
+            <button className="btn-mini" onClick={() => { social.respondRoomInvite(i.code, true); navigate("/sala"); }} data-testid="room-invite-accept">Entrar</button>
+          </div>
+        </div>
+      ))}
       {social.invites.map((i) => (
         <div key={i.partyId} className="panel cut cut-sm invite-card" data-testid="party-invite">
           <span className="label">Convite de grupo</span>

@@ -66,7 +66,8 @@ export function MatchScreen() {
       } else if (m.t === "welcome" && !m.inMatch && !rt.current) {
         navigate("/jogar", { replace: true });
       } else if (m.t === "left_match") {
-        navigate("/menu", { replace: true });
+        // Partida de sala: quem sai volta para o lobby da sala (continua nela).
+        navigate(gameSocket.room ? "/sala" : "/menu", { replace: true });
       } else if (m.t === "ranked_result") {
         setRankedRes(m);
         void reloadMe().catch(() => undefined);
@@ -191,7 +192,7 @@ export function MatchScreen() {
     gameSocket.send({ t: "leave_match" });
     gameSocket.match = null;
     gameSocket.inMatch = false;
-    navigate("/menu", { replace: true });
+    navigate(gameSocket.room ? "/sala" : "/menu", { replace: true });
   };
 
   const exit = (to: string) => {
@@ -241,7 +242,7 @@ export function MatchScreen() {
             <div className="match-clock">
               <span className="label">{hud.phase === "warmup" ? "Aguardando jogadores" : hud.phase === "freeze" ? "Prepare-se" : hud.phase === "round_end" ? "Fim do round" : hud.phase === "ended" ? "Fim" : `Round ${hud.round}`}</span>
               <b>{hud.phase === "ended" ? "--" : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`}</b>
-              <span className="muted">primeiro a {hud.roundsToWin}</span>
+              <span className="muted">primeiro a {hud.roundsToWin}{info.rules?.headshotsOnly ? " · só headshot" : ""}{info.rules?.friendlyFire ? " · fogo amigo" : ""}</span>
             </div>
             <strong style={{ color: TEAM_COLORS[enemyTeam] }}>{hud.score[enemyTeam]}</strong>
             <div className="team-pips">{teamRow(enemyTeam).map((p) => <i key={p.id} className={p.alive ? "" : "dead"} style={{ background: TEAM_COLORS[enemyTeam] }} />)}</div>
@@ -255,6 +256,7 @@ export function MatchScreen() {
           {indicators.map((d) => <div key={d.id} className="dmg-ind" style={{ transform: `translate(-50%, -50%) rotate(${d.angle}rad)` }}><span /></div>)}
           {hud.health < 35 && hud.alive && <div className="low-hp" />}
 
+          {hud.spectators > 0 && <div className="spec-watching" data-testid="spectators-count">{hud.spectators} assistindo · com atraso</div>}
           <div className="hud-feed" data-testid="killfeed">
             {feed.map(({ id, e }) => (
               <div key={id} className={`feed-row ${e.involvesYou ? "me" : ""}`}>
@@ -347,8 +349,14 @@ export function MatchScreen() {
               ))}
               {result && (
                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                  <Button variant="ghost" onClick={() => exit("/menu")}>Menu</Button>
-                  <Button onClick={() => exit("/jogar")} data-testid="play-again">Jogar de novo</Button>
+                  {info.rules ? (
+                    <Button onClick={() => exit("/sala")} data-testid="back-to-room">Voltar à sala</Button>
+                  ) : (
+                    <>
+                      <Button variant="ghost" onClick={() => exit("/menu")}>Menu</Button>
+                      <Button onClick={() => exit("/jogar")} data-testid="play-again">Jogar de novo</Button>
+                    </>
+                  )}
                 </div>
               )}
             </div>

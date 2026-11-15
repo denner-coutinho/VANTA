@@ -1,6 +1,7 @@
 import type { CharacterSkinMaterial, WeaponSkinMaterial } from "../cosmetics.js";
 import { CHAT_MAX_LEN, type ChatChannel, type PartyView, type PresenceState, type SocialEvent } from "../social.js";
 import { z } from "zod";
+import { roomPasswordSchema, roomSettingsSchema, type RoomListItem, type RoomView } from "../rooms.js";
 import type { PlayerCommand } from "../game/sim.js";
 import type { Vec3 } from "../game/math.js";
 
@@ -9,7 +10,7 @@ import type { Vec3 } from "../game/math.js";
  * Toda mensagem do cliente é validada com zod no servidor; o cliente só envia intenções.
  */
 
-export const GAME_PROTOCOL_VERSION = 3;
+export const GAME_PROTOCOL_VERSION = 4;
 export const SERVER_TICK_RATE = 60;
 /** Um snapshot a cada N ticks (60/2 = 30 Hz). */
 export const SNAPSHOT_EVERY = 2;
@@ -108,7 +109,19 @@ export const clientMessageSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("party_respond"), partyId: z.string().min(1).max(40), accept: z.boolean() }),
   z.object({ t: z.literal("party_leave") }),
   z.object({ t: z.literal("party_kick"), userId: z.string().min(1).max(40) }),
-  z.object({ t: z.literal("chat"), channel: z.enum(["all", "team", "party"]), text: z.string().min(1).max(CHAT_MAX_LEN * 2) }),
+  z.object({ t: z.literal("chat"), channel: z.enum(["all", "team", "party", "room"]), text: z.string().min(1).max(CHAT_MAX_LEN * 2) }),
+  // Salas personalizadas e espectador (Fase 7)
+  z.object({ t: z.literal("room_create"), settings: roomSettingsSchema, password: roomPasswordSchema.optional() }),
+  z.object({ t: z.literal("room_join"), code: z.string().min(1).max(12), password: z.string().max(64).optional(), spectate: z.boolean().optional() }),
+  z.object({ t: z.literal("room_leave") }),
+  z.object({ t: z.literal("room_update"), settings: roomSettingsSchema, password: roomPasswordSchema.nullable().optional() }),
+  z.object({ t: z.literal("room_team"), userId: z.string().min(1).max(40).optional(), team: z.union([z.literal(0), z.literal(1), z.null()]) }),
+  z.object({ t: z.literal("room_kick"), userId: z.string().min(1).max(40) }),
+  z.object({ t: z.literal("room_lock"), locked: z.boolean() }),
+  z.object({ t: z.literal("room_start") }),
+  z.object({ t: z.literal("room_close") }),
+  z.object({ t: z.literal("room_list") }),
+  z.object({ t: z.literal("room_invite"), userId: z.string().min(1).max(40) }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -143,6 +156,8 @@ export interface MatchInfo {
   /** Último seq de comando aceito do jogador (ao reconectar, o cliente continua dele). */
   lastSeq: number;
   tick: number;
+  /** Regras da sala personalizada (null nas partidas da fila). */
+  rules?: CustomMatchRules | null;
 }
 
 /** Estado completo do próprio jogador, para reconciliação da predição. */
@@ -204,6 +219,41 @@ export interface Snapshot {
   /** Placar individual: [id, abates, mortes, assistências]. */
   kd: Array<[string, number, number, number]>;
   ev: MatchEventWire[];
+  /** Quantas pessoas estão assistindo (com atraso). Só aparece quando há espectadores. */
+  spec?: number;
+}
+
+/** Opções de partida personalizada (só existem em partidas de sala). */
+export interface CustomMatchRules {
+  roundTimeSec: number;
+  friendlyFire: boolean;
+  headshotsOnly: boolean;
+}
+
+/** Jogador visto pelo espectador: [id, x, y, z, yaw, pitch, crouchBlend, vivo, slot, vida, flags, time]. */
+export type WireSpec = [string, number, number, number, number, number, number, 0 | 1, number, number, number, 0 | 1];
+
+export interface SpectatorInfo {
+  matchId: string;
+  mode: QueueMode;
+  map: string;
+  roundsToWin: number;
+  players: MatchPlayerInfo[];
+  delayMs: number;
+  rules: CustomMatchRules | null;
+}
+
+/** Quadro atrasado para espectadores (SPECTATOR_DELAY_MS). Só eventos públicos. */
+export interface SpecFrame {
+  t: "spec";
+  tick: number;
+  phase: MatchPhase;
+  phaseEndsIn: number;
+  round: number;
+  score: [number, number];
+  players: WireSpec[];
+  kd: Array<[string, number, number, number]>;
+  ev: MatchEventWire[];
 }
 
 /** Resultado ranqueado do próprio jogador, enviado depois que o servidor grava a partida. */
@@ -240,4 +290,11 @@ export type ServerMessage =
   | { t: "social"; ev: SocialEvent }
   | { t: "party"; party: PartyView | null }
   | { t: "party_invite"; partyId: string; from: { id: string; username: string }; expiresAt: number }
-  | { t: "chat"; channel: ChatChannel; from: { id: string; username: string }; text: string; at: number };
+  | { t: "chat"; channel: ChatChannel; from: { id: string; username: string }; text: string; at: number }
+  /** Sala atual (null = saiu, foi removido ou a sala fechou; `reason` explica). */
+  | { t: "room"; room: RoomView | null; reason?: "left" | "kicked" | "closed" }
+  | { t: "room_list"; rooms: RoomListItem[] }
+  | { t: "room_invite"; code: string; name: string; from: { id: string; username: string }; expiresAt: number }
+  | { t: "spec_start"; info: SpectatorInfo }
+  | SpecFrame
+  | { t: "spec_end" };

@@ -33,6 +33,10 @@ import {
   type WireOther,
   type WireSelf,
   type MatchCosmetics,
+  type CustomMatchRules,
+  type SpecFrame,
+  type WireSpec,
+  SPECTATOR_DELAY_MS,
 } from "@vanta/shared";
 
 export interface Conn {
@@ -102,6 +106,8 @@ export interface MatchResult {
   startedAt: Date;
   endedAt: Date;
   roundsToWin: number;
+  /** Partida de sala personalizada (não conta para estatísticas do perfil nem ranking). */
+  roomId: string | null;
   players: Array<PlayerMatchStats & { characterId: string | null }>;
   events: Array<{ tick: number; round: number; type: string; actorId?: string; targetId?: string; data: object }>;
 }
@@ -115,6 +121,8 @@ export interface MatchOptions {
   seed: number;
   /** Partida ranqueada (o servidor de jogo aplica MMR e pontos ao gravar). */
   ranked?: boolean;
+  /** Sala personalizada: rounds, tempo de round, fogo amigo, só headshot. */
+  custom?: { roomId: string; roundsToWin: number; rules: CustomMatchRules };
   onEnd: (r: MatchResult) => void;
   /** Relógio injetável (testes). */
   now?: () => number;
@@ -148,11 +156,21 @@ export class Match {
   private endedAt: Date | null = null;
   private now: () => number;
   private ended = false;
+  private roundTicks: number;
+  readonly rules: CustomMatchRules | null;
+  /** Espectadores (só salas personalizadas): recebem quadros atrasados. */
+  private spectators = new Map<string, Conn>();
+  private specQueue: SpecFrame[] = [];
+  private specDelayTicks = Math.round(SPECTATOR_DELAY_MS / TICK_MS);
+  /** Depois do fim, o relógio dos espectadores continua até o último quadro sair. */
+  private specClock = 0;
 
   constructor(private opts: MatchOptions) {
     this.id = opts.id;
     this.mode = opts.mode;
-    this.roundsToWin = MODES[opts.mode].roundsToWin;
+    this.roundsToWin = opts.custom?.roundsToWin ?? MODES[opts.mode].roundsToWin;
+    this.rules = opts.custom?.rules ?? null;
+    this.roundTicks = (this.rules ? this.rules.roundTimeSec * 1000 : PHASE_MS.round) / TICK_MS;
     this.world = new CollisionWorld(opts.map.solids.map((s) => s.box));
     this.now = opts.now ?? Date.now;
     this.phaseEndsAt = PHASE_MS.warmupMax / TICK_MS;
@@ -216,7 +234,43 @@ export class Match {
       players: this.players.map((p) => ({ id: p.userId, username: p.username, team: p.team, color: p.color, character: p.character, loadout: p.loadout.map((w) => w.code), connected: !!p.conn && !p.abandoned, cosmetics: p.cosmetics })),
       lastSeq: me.lastReceived,
       tick: this.tick,
+      rules: this.rules,
     };
+  }
+
+  get roomId() {
+    return this.opts.custom?.roomId ?? null;
+  }
+
+  get spectatorCount() {
+    return this.spectators.size;
+  }
+
+  hasSpectator(userId: string) {
+    return this.spectators.has(userId);
+  }
+
+  /** Começa a assistir. Quem joga (ou jogou) esta partida não pode assistir a ela. */
+  addSpectator(userId: string, conn: Conn): boolean {
+    if (this.player(userId) || !this.opts.custom) return false;
+    this.spectators.set(userId, conn);
+    conn.send({
+      t: "spec_start",
+      info: {
+        matchId: this.id,
+        mode: this.mode,
+        map: this.opts.mapCode,
+        roundsToWin: this.roundsToWin,
+        players: this.players.map((p) => ({ id: p.userId, username: p.username, team: p.team, color: p.color, character: p.character, loadout: p.loadout.map((w) => w.code), connected: !!p.conn && !p.abandoned, cosmetics: p.cosmetics })),
+        delayMs: this.specDelayTicks * TICK_MS,
+        rules: this.rules,
+      },
+    });
+    return true;
+  }
+
+  removeSpectator(userId: string) {
+    this.spectators.delete(userId);
   }
 
   /** Conecta (ou reconecta) um jogador e envia o estado da partida. */
@@ -307,7 +361,10 @@ export class Match {
 
   /** Avança um tick de simulação. */
   step() {
-    if (this.ended) return;
+    if (this.ended) {
+      if (this.specQueue.length) this.flushSpectators(this.tick + ++this.specClock);
+      return;
+    }
     this.tick++;
     const nowMs = this.now();
 
@@ -358,7 +415,7 @@ export class Match {
     // Compensação de latência: os alvos são posicionados onde o atirador os via.
     const rewindTick = Math.max(this.tick - MAX_REWIND_TICKS, Math.min(this.tick, cmd.viewTick));
     const targets = this.players
-      .filter((o) => o !== p && o.team !== p.team)
+      .filter((o) => o !== p && (o.team !== p.team || !!this.rules?.friendlyFire))
       .map((o) => {
         const h = this.historyAt(o, rewindTick);
         return { entity: o, alive: h.alive, hitboxes: humanoidHitboxes(h.pos, h.crouched) };
@@ -373,7 +430,8 @@ export class Match {
       const hit = raycastEntities(targets, o, dir, wall ? wall.t : maxRange);
       if (hit) {
         const acc = perTarget.get(hit.entity) ?? { dmg: 0, head: false };
-        acc.dmg += damageAt(stats, hit.t, hit.zone);
+        // "Só headshot": o tiro no corpo para no alvo, mas não causa dano.
+        acc.dmg += this.rules?.headshotsOnly && hit.zone !== "head" ? 0 : damageAt(stats, hit.t, hit.zone);
         acc.head ||= hit.zone === "head";
         perTarget.set(hit.entity, acc);
         ends.push(hit.point);
@@ -386,7 +444,7 @@ export class Match {
     if (perTarget.size) p.stats.hits++;
 
     for (const [target, { dmg, head }] of perTarget) {
-      if (!target.c.alive) continue;
+      if (!target.c.alive || dmg <= 0) continue;
       const applied = Math.min(dmg, target.c.health);
       target.c.health -= dmg;
       p.stats.damage += applied;
@@ -404,7 +462,10 @@ export class Match {
     victim.c.alive = false;
     victim.c.health = 0;
     victim.stats.deaths++;
-    killer.stats.kills++;
+    // Fogo amigo: abater um aliado não conta como abate (e tira um do placar individual).
+    const teamKill = killer.team === victim.team;
+    if (teamKill) killer.stats.kills = Math.max(0, killer.stats.kills - 1);
+    else killer.stats.kills++;
     for (const [id, dmg] of victim.damageBy) {
       if (id !== killer.userId && dmg >= ASSIST_MIN_DAMAGE) {
         const a = this.player(id);
@@ -412,7 +473,7 @@ export class Match {
       }
     }
     this.events.push({ k: "kill", killer: killer.userId, victim: victim.userId, weapon: weapon.name, head });
-    this.log.push({ tick: this.tick, round: this.round, type: "kill", actorId: killer.userId, targetId: victim.userId, data: { weapon: weapon.code, head } });
+    this.log.push({ tick: this.tick, round: this.round, type: "kill", actorId: killer.userId, targetId: victim.userId, data: { weapon: weapon.code, head, ...(teamKill ? { teamKill: true } : {}) } });
   }
 
   private historyAt(p: MatchPlayer, tick: number): HistoryEntry {
@@ -438,7 +499,7 @@ export class Match {
       case "freeze":
         if (t >= this.phaseEndsAt) {
           this.phase = "live";
-          this.phaseEndsAt = t + PHASE_MS.round / TICK_MS;
+          this.phaseEndsAt = t + this.roundTicks;
         }
         break;
       case "live": {
@@ -509,6 +570,7 @@ export class Match {
       startedAt: this.startedAt,
       endedAt: this.endedAt,
       roundsToWin: this.roundsToWin,
+      roomId: this.roomId,
       players: stats.map((s) => ({ ...s, characterId: this.player(s.id)!.characterId })),
       events: this.log,
     });
@@ -564,10 +626,26 @@ export class Match {
           const m = o.c.move;
           return [o.userId, r3n(m.pos.x), r3n(m.pos.y), r3n(m.pos.z), r3n(o.lastYaw), r3n(o.lastPitch), r3n(m.crouchBlend), o.c.alive ? 1 : 0, o.c.slot, o.team === p.team ? Math.max(0, Math.round(o.c.health)) : -1, animFlags(o.c)];
         });
-      p.conn.send({ t: "snap", tick: this.tick, phase: this.phase, phaseEndsIn, round: this.round, score: [...this.score], you: this.selfWire(p), others, kd, ev: [...this.events, ...p.privateEvents] });
+      p.conn.send({ t: "snap", tick: this.tick, phase: this.phase, phaseEndsIn, round: this.round, score: [...this.score], you: this.selfWire(p), others, kd, ev: [...this.events, ...p.privateEvents], ...(this.spectators.size ? { spec: this.spectators.size } : {}) });
       p.privateEvents = [];
     }
+    if (this.opts.custom) {
+      // Espectador vê todos (posição e vida), mas atrasado: o quadro entra na fila e só sai depois do atraso.
+      const players: WireSpec[] = this.players.map((o) => {
+        const m = o.c.move;
+        return [o.userId, r3n(m.pos.x), r3n(m.pos.y), r3n(m.pos.z), r3n(o.lastYaw), r3n(o.lastPitch), r3n(m.crouchBlend), o.c.alive ? 1 : 0, o.c.slot, Math.max(0, Math.round(o.c.health)), animFlags(o.c), o.team];
+      });
+      this.specQueue.push({ t: "spec", tick: this.tick, phase: this.phase, phaseEndsIn, round: this.round, score: [...this.score], players, kd, ev: [...this.events] });
+      this.flushSpectators(this.tick);
+    }
     this.events = [];
+  }
+
+  private flushSpectators(now: number) {
+    while (this.specQueue.length && this.specQueue[0]!.tick <= now - this.specDelayTicks) {
+      const f = this.specQueue.shift()!;
+      for (const conn of this.spectators.values()) conn.send(f);
+    }
   }
 }
 

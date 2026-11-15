@@ -79,6 +79,8 @@ export interface OnlineHud {
   fps: number;
   rtt: number;
   connected: boolean;
+  /** Pessoas assistindo (só salas; elas veem com atraso). */
+  spectators: number;
 }
 
 export type OnlineEvent =
@@ -689,6 +691,7 @@ export class OnlineRuntime {
         fps: this.fps,
         rtt: Math.round(this.rtt),
         connected: this.connected,
+        spectators: s?.spec ?? 0,
       });
     }
   }

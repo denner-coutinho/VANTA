@@ -1,4 +1,4 @@
-import { GAME_PROTOCOL_VERSION, type ClientMessage, type MatchInfo, type QueueMode, type RankedResultWire, type ServerMessage } from "@vanta/shared";
+import { GAME_PROTOCOL_VERSION, type ClientMessage, type MatchInfo, type QueueMode, type RankedResultWire, type RoomView, type ServerMessage, type SpectatorInfo } from "@vanta/shared";
 import { api } from "../api/client";
 
 type Listener = (m: ServerMessage) => void;
@@ -22,6 +22,9 @@ class GameSocket {
   inMatch = false;
   /** Último resultado ranqueado gravado pelo servidor (pode chegar logo depois do fim da partida). */
   rankedResult: RankedResultWire | null = null;
+  /** Sala personalizada atual e a partida que está assistindo (as telas montam com o último estado). */
+  room: RoomView | null = null;
+  spectate: SpectatorInfo | null = null;
   rtt = 0;
   private pingTimer: number | null = null;
 
@@ -67,6 +70,9 @@ class GameSocket {
         this.userId = msg.userId;
         this.inMatch = msg.inMatch;
         if (!msg.inMatch) this.match = null;
+        // O servidor reenvia a sala logo depois, se ainda fizer parte dela.
+        this.room = null;
+        this.spectate = null;
         this.setStatus("online");
         this.startPing();
       } else if (msg.t === "match") {
@@ -78,6 +84,13 @@ class GameSocket {
       } else if (msg.t === "left_match") {
         this.match = null;
         this.inMatch = false;
+      } else if (msg.t === "room") {
+        this.room = msg.room;
+        if (!msg.room) this.spectate = null;
+      } else if (msg.t === "spec_start") {
+        this.spectate = msg.info;
+      } else if (msg.t === "spec_end") {
+        this.spectate = null;
       } else if (msg.t === "pong") {
         this.rtt = performance.now() - msg.n;
       } else if (msg.t === "snap" && msg.ev.some((ev) => ev.k === "match_end")) {
