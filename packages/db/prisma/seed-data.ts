@@ -58,6 +58,10 @@ export const MISSIONS: Array<{ code: string; name: string; description: string; 
   { code: "DAILY_HEADSHOTS_10", name: "Linha da cabeça", description: "Consiga 10 headshots.", period: "DAILY", objective: { stat: "headshots", target: 10 }, rewardXp: 250, rewardCoins: 0 },
   { code: "WEEKLY_WIN_10", name: "Semana de vitórias", description: "Vença 10 partidas.", period: "WEEKLY", objective: { stat: "wins", target: 10 }, rewardXp: 1500, rewardCoins: 25 },
   { code: "WEEKLY_KILLS_100", name: "Operação limpeza", description: "Elimine 100 adversários.", period: "WEEKLY", objective: { stat: "kills", target: 100 }, rewardXp: 1200, rewardCoins: 25 },
+  { code: "DAILY_WIN_1", name: "Primeira do dia", description: "Vença 1 partida.", period: "DAILY", objective: { stat: "wins", target: 1 }, rewardXp: 200, rewardCoins: 0 },
+  { code: "DAILY_KILLS_15", name: "Pressão constante", description: "Elimine 15 adversários.", period: "DAILY", objective: { stat: "kills", target: 15 }, rewardXp: 250, rewardCoins: 0 },
+  { code: "WEEKLY_MEDALS_10", name: "Condecorado", description: "Ganhe 10 medalhas.", period: "WEEKLY", objective: { stat: "medals", target: 10 }, rewardXp: 1000, rewardCoins: 15 },
+  { code: "WEEKLY_ASSISTS_30", name: "Jogo de equipe", description: "Dê 30 assistências.", period: "WEEKLY", objective: { stat: "assists", target: 30 }, rewardXp: 900, rewardCoins: 10 },
 ];
 
 export const ACHIEVEMENTS = [
@@ -65,4 +69,10 @@ export const ACHIEVEMENTS = [
   { code: "FIRST_WIN", name: "Primeira vitória", description: "Vença sua primeira partida.", iconKey: "first_win", objective: { stat: "wins", target: 1 }, rewardXp: 200 },
   { code: "SHARPSHOOTER", name: "Atirador de elite", description: "Acumule 500 headshots.", iconKey: "sharpshooter", objective: { stat: "headshots", target: 500 }, rewardXp: 1000, rewardTitle: "Atirador de Elite" },
   { code: "MVP_10", name: "Destaque", description: "Seja MVP em 10 partidas.", iconKey: "mvp", objective: { stat: "mvpCount", target: 10 }, rewardXp: 800, rewardTitle: "Destaque" },
+  { code: "ACE_1", name: "Limpeza total", description: "Ganhe a medalha Ace.", iconKey: "ace", objective: { stat: "medal:ACE", target: 1 }, rewardXp: 500, rewardTitle: "Ace" },
+  { code: "CLUTCH_5", name: "Nervos de aço", description: "Ganhe a medalha Sangue frio 5 vezes.", iconKey: "clutch", objective: { stat: "medal:CLUTCH", target: 5 }, rewardXp: 800, rewardTitle: "Sangue Frio" },
+  { code: "FLAWLESS_3", name: "Intocável", description: "Ganhe a medalha Impecável 3 vezes.", iconKey: "flawless", objective: { stat: "medal:FLAWLESS", target: 3 }, rewardXp: 600, rewardTitle: "Intocável" },
+  { code: "LEVEL_10", name: "Veterano", description: "Chegue ao nível 10.", iconKey: "level", objective: { stat: "level", target: 10 }, rewardXp: 0, rewardTitle: "Veterano" },
+  { code: "MATCHES_100", name: "Incansável", description: "Jogue 100 partidas.", iconKey: "matches", objective: { stat: "matchesPlayed", target: 100 }, rewardXp: 1000, rewardTitle: "Incansável" },
+  { code: "WINS_50", name: "Vencedor", description: "Vença 50 partidas.", iconKey: "wins", objective: { stat: "wins", target: 50 }, rewardXp: 1000, rewardTitle: "Vencedor" },
 ];

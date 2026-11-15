@@ -39,6 +39,7 @@ import { PartyManager, type Party } from "./party.js";
 import type { SocialBus } from "../modules/social/bus.js";
 import { RoomManager, type Room, type RoomError } from "./rooms.js";
 import { PasswordHasher } from "../lib/password.js";
+import { applyMatchProgression } from "../modules/progression/progression.service.js";
 
 export interface GameServerOptions {
   prisma: PrismaClient;
@@ -1201,7 +1202,7 @@ export class GameServer {
     const resultFor = (team: 0 | 1, abandoned: boolean) => (abandoned ? "ABANDONED" : r.winner === null ? "DRAW" : r.winner === team ? "WIN" : "LOSS");
     // Ranqueada: vale a temporada em andamento quando a partida termina (se ela acabou no meio, a partida não pontua).
     const season = r.ranked ? await getActiveSeason(db, r.endedAt) : null;
-    const rankedUpdates = await db.$transaction(async (tx) => {
+    const { ranked: rankedUpdates, progress } = await db.$transaction(async (tx) => {
       const ranked = season ? await applyRankedMatch(tx, season, r) : [];
       const rankedOf = (id: string) => ranked.find((u) => u.userId === id);
       await tx.match.create({
@@ -1263,10 +1264,16 @@ export class GameServer {
           },
         });
       }
-      return ranked;
-    });
+      // XP, medalhas, missões e conquistas (só partidas da fila: sala não dá progressão).
+      const progress = r.roomId ? [] : await applyMatchProgression(tx, { matchId: r.matchId, winner: r.winner, players: r.players, events: r.events }, (p) => resultFor(p.team, p.abandoned), r.endedAt);
+      return { ranked, progress };
+    }, { timeout: 20_000 });
     // Cada jogador recebe só o próprio resultado ranqueado (pontos e patente; o MMR fica oculto).
     for (const u of rankedUpdates) {
+      const c = this.clients.get(u.userId);
+      if (c) this.send(c, u.wire);
+    }
+    for (const u of progress) {
       const c = this.clients.get(u.userId);
       if (c) this.send(c, u.wire);
     }

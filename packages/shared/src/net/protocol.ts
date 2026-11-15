@@ -1,6 +1,7 @@
 import type { CharacterSkinMaterial, WeaponSkinMaterial } from "../cosmetics.js";
 import { CHAT_MAX_LEN, type ChatChannel, type PartyView, type PresenceState, type SocialEvent } from "../social.js";
 import { z } from "zod";
+import type { MatchProgressWire } from "../progression.js";
 import { roomPasswordSchema, roomSettingsSchema, type RoomListItem, type RoomView } from "../rooms.js";
 import type { PlayerCommand } from "../game/sim.js";
 import type { Vec3 } from "../game/math.js";
@@ -297,4 +298,6 @@ export type ServerMessage =
   | { t: "room_invite"; code: string; name: string; from: { id: string; username: string }; expiresAt: number }
   | { t: "spec_start"; info: SpectatorInfo }
   | SpecFrame
-  | { t: "spec_end" };
+  | { t: "spec_end" }
+  /** XP, medalhas, missões e conquistas da partida (depois de gravada). */
+  | MatchProgressWire;

@@ -237,7 +237,7 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 | **Regras contra abuso do espectador**: só em salas (fila e ranqueado não aceitam), quem joga ou jogou a partida não pode assisti-la, e durante a partida o chat da sala é só entre espectadores | ✅ | Testes |
 | Chat da sala, presença "Em sala" para amigos, 30 s para voltar se cair, fila bloqueada enquanto está numa sala | ✅ | Testes + E2E |
 
-**Testes:** 124 no servidor (15 novos), 86 no shared (2 novos), 11 no cliente + **E2E de salas com três navegadores** (`scripts/e2e-rooms.mjs`, 9 etapas) + E2E social (11/11) e multiplayer (11/11) repetidos. O E2E de salas passou em 2 de 3 execuções: a que falhou rodou junto com outros E2Es pesados e não deixou erro de página nem de servidor; as duas execuções sozinhas passaram.
+**Testes:** 119 no servidor (10 novos), 86 no shared (2 novos), 11 no cliente + **E2E de salas com três navegadores** (`scripts/e2e-rooms.mjs`, 9 etapas) + E2E social (11/11) e multiplayer (11/11) repetidos. O E2E de salas passou em 2 de 3 execuções: a que falhou rodou junto com outros E2Es pesados e não deixou erro de página nem de servidor; as duas execuções sozinhas passaram.
 
 #### Limites honestos da parte 2
 - **Espectador só em salas personalizadas.** Assistir partidas da fila ou do ranqueado (ex.: de um amigo) não existe: no ranqueado seria um risco de passar informação, e o atraso fixo de 3 s é uma escolha para salas casuais.
