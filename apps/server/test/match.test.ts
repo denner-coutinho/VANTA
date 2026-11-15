@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANIM_FLAG, MAP_REGISTRY, MAX_HEALTH, WEAPON_CATALOG, eyeHeight, weaponStatsFromRow, type MatchEventWire, type PlayerCommand, type ServerMessage, type Vec3 } from "@vanta/shared";
+import { ANIM_FLAG, SPECTATOR_DELAY_MS, MAP_REGISTRY, MAX_HEALTH, WEAPON_CATALOG, eyeHeight, weaponStatsFromRow, type MatchEventWire, type PlayerCommand, type ServerMessage, type Vec3 } from "@vanta/shared";
 import { Match, type MatchResult, type MatchSeat } from "../src/game/match.js";
 
 const W = (code: string) => weaponStatsFromRow(WEAPON_CATALOG.find((w) => w.code === code)! as unknown as Record<string, unknown>);
@@ -18,12 +18,12 @@ interface Harness {
   seq: Map<string, number>;
 }
 
-function setup(teamSize = 1, loadout = [RIFLE]): Harness {
+function setup(teamSize = 1, loadout = [RIFLE], custom?: ConstructorParameters<typeof Match>[0]["custom"]): Harness {
   const clock = { t: 1_000_000 };
   const results: MatchResult[] = [];
   const teams: [MatchSeat[], MatchSeat[]] = [[], []];
   for (let i = 0; i < teamSize * 2; i++) teams[i < teamSize ? 0 : 1].push(seat(i + 1, loadout));
-  const m = new Match({ id: "m1", mode: teamSize === 1 ? "1v1" : teamSize === 2 ? "2v2" : "3v3", mapCode: "NEON_DISTRICT", map: MAP_REGISTRY.NEON_DISTRICT!, teams, seed: 42, onEnd: (r) => results.push(r), now: () => clock.t });
+  const m = new Match({ id: "m1", mode: teamSize === 1 ? "1v1" : teamSize === 2 ? "2v2" : "3v3", mapCode: "NEON_DISTRICT", map: MAP_REGISTRY.NEON_DISTRICT!, teams, seed: 42, custom, onEnd: (r) => results.push(r), now: () => clock.t });
   const inbox = new Map<string, ServerMessage[]>();
   for (const p of m.players) {
     inbox.set(p.userId, []);
@@ -285,5 +285,102 @@ describe("partida autoritativa", () => {
     expect(h.m.isEnded).toBe(true);
     expect(h.results[0]).toMatchObject({ winner: 0, reason: "forfeit" });
     expect(h.results[0]!.players.find((p) => p.id === "u2")!.abandoned).toBe(true);
+  });
+});
+
+const RULES = { roundTimeSec: 100, friendlyFire: false, headshotsOnly: false };
+
+describe("partida personalizada (sala)", () => {
+  it("rounds para vencer e tempo de round vêm da sala", () => {
+    const h = setup(1, [RIFLE], { roomId: "r1", roundsToWin: 2, rules: { ...RULES, roundTimeSec: 30 } });
+    expect(h.m.info("u1").roundsToWin).toBe(2);
+    expect(h.m.info("u1").rules).toEqual({ ...RULES, roundTimeSec: 30 });
+    untilLive(h);
+    const start = h.m.tick;
+    for (let i = 0; i < 31 * 60 && h.m.phase === "live"; i++) tick(h);
+    expect(h.m.phase).toBe("round_end");
+    expect((h.m.tick - start) / 60).toBeGreaterThan(29);
+    expect((h.m.tick - start) / 60).toBeLessThan(31);
+    tick(h);
+    tick(h);
+    expect(events(h, "u1").some((e) => e.k === "round_end" && e.reason === "time")).toBe(true);
+  });
+
+  it("sem fogo amigo, tiro no aliado não causa dano; com fogo amigo mata e não conta abate", () => {
+    for (const ff of [false, true]) {
+      const h = setup(2, [RIFLE], { roomId: "r1", roundsToWin: 3, rules: { ...RULES, friendlyFire: ff } });
+      untilLive(h);
+      // u1 e u2 são do mesmo time (A).
+      place(h, "u1", { x: 5, y: 0, z: -23 });
+      place(h, "u2", { x: 5, y: 0, z: -15 });
+      place(h, "u3", { x: -30, y: 0, z: 30 });
+      place(h, "u4", { x: -32, y: 0, z: 30 });
+      for (let i = 0; i < 10; i++) tick(h);
+      for (let i = 0; i < 240 && h.m.player("u2")!.c.alive; i++) tick(h, { u1: { ...aimAt(eyeOf(h, "u1"), headOf(h, "u2")), fire: true, aim: true } });
+      const u2 = h.m.player("u2")!;
+      if (!ff) {
+        expect(u2.c.alive).toBe(true);
+        expect(u2.c.health).toBe(MAX_HEALTH);
+      } else {
+        expect(u2.c.alive).toBe(false);
+        expect(h.m.player("u1")!.stats.kills).toBe(0);
+        expect(u2.stats.deaths).toBe(1);
+      }
+    }
+  });
+
+  it("só headshot: tiro no corpo não tira vida; na cabeça mata", () => {
+    const h = setup(1, [RIFLE], { roomId: "r1", roundsToWin: 3, rules: { ...RULES, headshotsOnly: true } });
+    untilLive(h);
+    duelPositions(h);
+    const chest = () => {
+      const p = h.m.player("u2")!.c.move.pos;
+      return { x: p.x, y: p.y + 1.1, z: p.z };
+    };
+    for (let i = 0; i < 90; i++) tick(h, { u1: { ...aimAt(eyeOf(h, "u1"), chest()), fire: true, aim: true } });
+    expect(h.m.player("u1")!.stats.shots).toBeGreaterThan(3);
+    expect(h.m.player("u2")!.c.health).toBe(MAX_HEALTH);
+    for (let i = 0; i < 30; i++) tick(h, { u1: { reload: true } });
+    for (let i = 0; i < 300 && h.m.player("u2")!.c.alive; i++) tick(h, { u1: { ...aimAt(eyeOf(h, "u1"), headOf(h, "u2")), fire: true, aim: true } });
+    expect(h.m.player("u2")!.c.alive).toBe(false);
+  });
+
+  it("espectador recebe tudo com atraso; jogador da partida não pode assistir; partida da fila não aceita", () => {
+    const h = setup(1, [RIFLE], { roomId: "r1", roundsToWin: 3, rules: RULES });
+    const got: ServerMessage[] = [];
+    expect(h.m.addSpectator("u1", { send: () => {} })).toBe(false);
+    expect(h.m.addSpectator("s1", { send: (m) => got.push(m) })).toBe(true);
+    expect(got[0]!.t).toBe("spec_start");
+    const delayTicks = Math.round(SPECTATOR_DELAY_MS / (1000 / 60));
+    for (let i = 0; i < delayTicks + 60; i++) {
+      tick(h);
+      const frames = got.filter((m) => m.t === "spec");
+      const last = frames.at(-1);
+      // Nunca chega um quadro mais novo que (agora - atraso).
+      if (last && last.t === "spec") expect(last.tick).toBeLessThanOrEqual(h.m.tick - delayTicks);
+    }
+    const frames = got.filter((m): m is Extract<ServerMessage, { t: "spec" }> => m.t === "spec");
+    expect(frames.length).toBeGreaterThan(20);
+    // O espectador vê vida e time de todos (inclusive adversários).
+    expect(frames.at(-1)!.players.map((p) => [p[0], p[9], p[11]])).toEqual([["u1", MAX_HEALTH, 0], ["u2", MAX_HEALTH, 1]]);
+    // Quem joga sabe que há gente assistindo.
+    const snap = h.inbox.get("u1")!.filter((m) => m.t === "snap").at(-1);
+    expect(snap && snap.t === "snap" && snap.spec).toBe(1);
+    const queue = setup();
+    expect(queue.m.addSpectator("s1", { send: () => {} })).toBe(false);
+  });
+
+  it("o espectador recebe o fim da partida mesmo depois que ela acabou no servidor", () => {
+    const h = setup(1, [RIFLE], { roomId: "r1", roundsToWin: 1, rules: RULES });
+    const got: ServerMessage[] = [];
+    h.m.addSpectator("s1", { send: (m) => got.push(m) });
+    untilLive(h);
+    h.m.forfeit("u2");
+    expect(h.m.isEnded).toBe(true);
+    expect(h.results[0]!.roomId).toBe("r1");
+    const hasEnd = () => got.some((m) => m.t === "spec" && m.ev.some((e) => e.k === "match_end"));
+    expect(hasEnd()).toBe(false);
+    for (let i = 0; i < 400 && !hasEnd(); i++) h.m.step();
+    expect(hasEnd()).toBe(true);
   });
 });

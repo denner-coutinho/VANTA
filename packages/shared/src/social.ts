@@ -24,8 +24,9 @@ export const CHAT_MAX_LEN = 200;
 /** Anti-flood do chat: no máximo N mensagens por janela. */
 export const CHAT_RATE = { max: 5, windowMs: 5_000 } as const;
 
-export type ChatChannel = "all" | "team" | "party";
-export const CHAT_CHANNEL_LABEL: Record<ChatChannel, string> = { all: "Todos", team: "Equipe", party: "Grupo" };
+/** "room": lobby da sala personalizada (durante a partida, só quem está assistindo recebe). */
+export type ChatChannel = "all" | "team" | "party" | "room";
+export const CHAT_CHANNEL_LABEL: Record<ChatChannel, string> = { all: "Todos", team: "Equipe", party: "Grupo", room: "Sala" };
 
 /** Arsenal padrão (quem ainda não escolheu armas entra com este). */
 export const DEFAULT_LOADOUT = ["VK7_LAMINA", "P9_FAISCA", "LR1_HORIZONTE"];
