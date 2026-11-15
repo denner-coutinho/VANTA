@@ -1,6 +1,7 @@
 export * from "./ranks.js";
 export * from "./ranked.js";
 export * from "./cosmetics.js";
+export * from "./social.js";
 export * from "./validation.js";
 export * from "./progression.js";
 export * from "./api-types.js";

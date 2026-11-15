@@ -79,6 +79,9 @@ export class InputManager {
 
   private onKeyDown = (e: KeyboardEvent) => {
     if (!this.locked) return;
+    // Digitando num campo (ex.: chat): as teclas são do campo, não do jogo.
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     if (e.code !== "Escape" && e.code !== "F11" && e.code !== "F12") e.preventDefault();
     if (!this.down.has(e.code)) this.pressedOnce.add(e.code);
     this.down.add(e.code);

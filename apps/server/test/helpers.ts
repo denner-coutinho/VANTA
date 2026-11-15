@@ -4,12 +4,14 @@ import { createPrismaClient, type PrismaClient } from "@vanta/db";
 import { buildApp, type AppDeps } from "../src/app.js";
 import { loadConfig } from "../src/config/env.js";
 import { MemoryMailer } from "../src/modules/mail/mailer.js";
+import { MemorySocialBus } from "../src/modules/social/bus.js";
 
 export interface TestContext {
   app: FastifyInstance;
   prisma: PrismaClient;
   redis: Redis;
   mailer: MemoryMailer;
+  bus: MemorySocialBus;
 }
 
 const TEST_DB = process.env.TEST_DATABASE_URL ?? "postgresql://vanta:vanta@localhost:5432/vanta_test?schema=public";
@@ -27,15 +29,16 @@ export async function createTestContext(deps: Pick<AppDeps, "payments"> = {}): P
   const prisma = createPrismaClient(TEST_DB);
   const redis = new Redis(config.REDIS_URL, { keyPrefix: config.REDIS_KEY_PREFIX });
   const mailer = new MemoryMailer();
-  const app = await buildApp(config, { prisma, redis, mailer, logger: false, payments: deps.payments ?? null });
+  const bus = new MemorySocialBus();
+  const app = await buildApp(config, { prisma, redis, mailer, logger: false, payments: deps.payments ?? null, socialBus: bus });
   await app.ready();
-  return { app, prisma, redis, mailer };
+  return { app, prisma, redis, mailer, bus };
 }
 
 /** Limpa dados de jogadores (mantém o conteúdo do seed) e o Redis de testes. */
 export async function resetState(ctx: TestContext) {
   await ctx.prisma.$executeRawUnsafe(
-    `TRUNCATE "User","AuthSession","EmailVerificationToken","PasswordResetToken","SecurityEvent","UserProfile","Wallet","WalletTransaction","Ban","AdminAuditLog","Inventory","RankedRating","PaymentOrder","PaymentWebhookEvent" RESTART IDENTITY CASCADE`,
+    `TRUNCATE "User","AuthSession","EmailVerificationToken","PasswordResetToken","SecurityEvent","UserProfile","Wallet","WalletTransaction","Ban","AdminAuditLog","Inventory","RankedRating","PaymentOrder","PaymentWebhookEvent","Friend","FriendRequest","UserBlock","UserMute","Report","Notification" RESTART IDENTITY CASCADE`,
   );
   const keys = await ctx.redis.keys("vanta-test:*");
   if (keys.length) await ctx.redis.del(...keys.map((k) => k.replace(/^vanta-test:/, "")));

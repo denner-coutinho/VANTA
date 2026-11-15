@@ -20,6 +20,9 @@ import { rankedRoutes } from "./modules/ranked/ranked.routes.js";
 import { economyRoutes } from "./modules/economy/economy.routes.js";
 import { StripeGateway, type PaymentGateway } from "./modules/economy/payments.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
+import { RedisSocialBus, type SocialBus } from "./modules/social/bus.js";
+import { SocialService } from "./modules/social/social.service.js";
+import { socialRoutes } from "./modules/social/social.routes.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -27,6 +30,7 @@ declare module "fastify" {
     prisma: PrismaClient;
     redis: Redis;
     authService: AuthService;
+    socialBus: SocialBus;
   }
 }
 
@@ -36,6 +40,8 @@ export interface AppDeps {
   mailer?: Mailer;
   /** Gateway de pagamento (testes injetam um com cliente Stripe falso). null = pagamentos desativados. */
   payments?: PaymentGateway | null;
+  /** Barramento social (testes usam o de memória, compartilhado com o servidor de jogo). */
+  socialBus?: SocialBus;
   logger?: boolean | object;
 }
 
@@ -62,11 +68,14 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   app.decorate("config", config);
   app.decorate("prisma", prisma);
   app.decorate("redis", redis);
+  const socialBus = deps.socialBus ?? new RedisSocialBus(config.REDIS_URL, `${config.REDIS_KEY_PREFIX}social`);
+  app.decorate("socialBus", socialBus);
   app.decorate("authService", new AuthService(prisma, new PasswordHasher(config.ARGON2_MEMORY_KIB), new LoginThrottle(redis), mailer, config));
 
   app.addHook("onClose", async () => {
     if (!deps.prisma) await prisma.$disconnect();
     if (!deps.redis) redis.disconnect();
+    if (!deps.socialBus) await socialBus.close();
   });
 
   app.setErrorHandler(errorHandler);
@@ -107,6 +116,7 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   const payments = deps.payments !== undefined ? deps.payments : config.STRIPE_SECRET_KEY ? new StripeGateway(config.STRIPE_SECRET_KEY, config.STRIPE_WEBHOOK_SECRET) : null;
   if (!payments) app.log.warn("Stripe não configurada: compra de VANTA COINS desativada.");
   await app.register(economyRoutes, { payments });
+  await app.register(socialRoutes, { social: new SocialService(prisma, socialBus) });
 
   return app;
 }

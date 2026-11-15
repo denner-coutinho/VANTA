@@ -1,4 +1,5 @@
 import type { CharacterSkinMaterial, WeaponSkinMaterial } from "../cosmetics.js";
+import { CHAT_MAX_LEN, type ChatChannel, type PartyView, type PresenceState, type SocialEvent } from "../social.js";
 import { z } from "zod";
 import type { PlayerCommand } from "../game/sim.js";
 import type { Vec3 } from "../game/math.js";
@@ -8,7 +9,7 @@ import type { Vec3 } from "../game/math.js";
  * Toda mensagem do cliente é validada com zod no servidor; o cliente só envia intenções.
  */
 
-export const GAME_PROTOCOL_VERSION = 2;
+export const GAME_PROTOCOL_VERSION = 3;
 export const SERVER_TICK_RATE = 60;
 /** Um snapshot a cada N ticks (60/2 = 30 Hz). */
 export const SNAPSHOT_EVERY = 2;
@@ -101,6 +102,13 @@ export const clientMessageSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("cmd"), c: z.array(wireCommand).min(1).max(30) }),
   z.object({ t: z.literal("ping"), n: z.number().int().min(0).max(2 ** 31) }),
   z.object({ t: z.literal("leave_match") }),
+  // Social (Fase 7)
+  z.object({ t: z.literal("loadout"), loadout: z.array(z.string().min(1).max(40)).min(1).max(3) }),
+  z.object({ t: z.literal("party_invite"), userId: z.string().min(1).max(40) }),
+  z.object({ t: z.literal("party_respond"), partyId: z.string().min(1).max(40), accept: z.boolean() }),
+  z.object({ t: z.literal("party_leave") }),
+  z.object({ t: z.literal("party_kick"), userId: z.string().min(1).max(40) }),
+  z.object({ t: z.literal("chat"), channel: z.enum(["all", "team", "party"]), text: z.string().min(1).max(CHAT_MAX_LEN * 2) }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -226,4 +234,10 @@ export type ServerMessage =
   | Snapshot
   | { t: "pong"; n: number; tick: number }
   | { t: "left_match" }
-  | { t: "error"; code: string; message: string; fatal?: boolean };
+  | { t: "error"; code: string; message: string; fatal?: boolean }
+  /** Presença dos amigos: lista completa logo após o welcome, depois só o que mudou. */
+  | { t: "presence"; full: boolean; list: Array<[string, PresenceState]> }
+  | { t: "social"; ev: SocialEvent }
+  | { t: "party"; party: PartyView | null }
+  | { t: "party_invite"; partyId: string; from: { id: string; username: string }; expiresAt: number }
+  | { t: "chat"; channel: ChatChannel; from: { id: string; username: string }; text: string; at: number };

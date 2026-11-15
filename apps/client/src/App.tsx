@@ -12,6 +12,7 @@ import { RankedScreen } from "./screens/RankedScreen";
 import { StoreScreen } from "./screens/StoreScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { TrainingScreen } from "./screens/TrainingScreen";
+import { InviteStack } from "./social/PartyWidget";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { status } = useAuth();
@@ -28,6 +29,7 @@ function GuestOnly({ children }: { children: ReactNode }) {
 export function App() {
   const location = useLocation();
   return (
+    <>
     <Routes location={location} key={location.pathname}>
       <Route path="/" element={<BootScreen />} />
       <Route path="/login" element={<GuestOnly><LoginScreen /></GuestOnly>} />
@@ -44,5 +46,7 @@ export function App() {
       <Route path="/partida" element={<RequireAuth><MatchScreen /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    <InviteStack />
+    </>
   );
 }

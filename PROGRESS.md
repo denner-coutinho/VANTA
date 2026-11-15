@@ -193,5 +193,38 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **E2E de treino ajustado**: ele segurava W por 1,2 s fixos e falhou duas vezes andando 1,44 m. Causa: com o renderizador por software o quadro passa de 100 ms e o jogo simula no máximo 0,1 s por quadro, então o tempo real não vira distância. Agora o teste segura W até andar 1,5 m (até 8 s) e também confere que não desviou para o lado. Numa máquina com GPU isso não acontece.
 - **Salas personalizadas** apareciam no menu como "Fase 3" mas não foram feitas na Fase 3. O menu agora indica Fase 7, junto com os sistemas sociais.
 
-## Fases 7–8 ⏳
-Sistemas sociais (amigos, clãs, salas personalizadas, missões, replays, kill cam, painel de administração) · Finalização (carga, segurança, Docker, CI, deploy).
+## Fase 7 — Sistemas adicionais 🔄 (em andamento, dividida em 5 partes)
+
+### Parte 1 — Social ✅ (15/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **Pedidos de amizade**: enviar por nome (sem diferenciar maiúsculas), aceitar, recusar, cancelar; adicionar quem já te convidou aceita direto; limite de 200 amigos; dois cliques ao mesmo tempo criam uma amizade só | ✅ | `test/social.test.ts` + E2E + captura 38 |
+| **Lista de amigos com presença ao vivo** (online, na fila, em partida, offline), calculada no servidor e enviada só para amigos | ✅ | `test/social-game.test.ts` + E2E |
+| **Avisos em tempo real**: pedido recebido e amizade aceita chegam na hora (API → Redis → servidor de jogo → navegador) e ficam também em notificações | ✅ | Testes + E2E |
+| **Jogadores recentes** das últimas 20 partidas, indicando aliado ou adversário, com adicionar, denunciar e bloquear | ✅ | Teste + E2E + captura 44 |
+| **Bloquear**: desfaz amizade, cancela pedidos, impede pedidos, convites e chat nos dois sentidos; quem foi bloqueado não descobre (a conta "não é encontrada") | ✅ | Testes + E2E |
+| **Silenciar no chat** (mais leve que bloquear), aplicado no servidor | ✅ | Teste |
+| **Grupo de até 3**: convite para amigo online (expira em 60 s), líder, remover, sair, 60 s para voltar se cair; bloquear alguém do grupo separa os dois | ✅ | Testes + E2E + captura 39 |
+| **Fila com grupo**: só o líder procura; o grupo entra inteiro, nunca é separado e fica no mesmo time; cada membro usa o próprio arsenal; se alguém cancela, o grupo todo sai | ✅ | Testes (`packParties` + partida 2v2 com grupo) + E2E + captura 41 |
+| **Chat de texto**: grupo (menu e tela Jogar), equipe e todos na partida (Enter / Shift+Enter); texto limpo no servidor; anti-flood; banimento de chat da moderação; chat da partida gravado para denúncias | ✅ | Testes + E2E + captura 42 |
+| **Denúncias** com motivo e descrição, pela lista de recentes, de amigos ou pelo resultado da partida (ligada à partida); uma por jogador a cada 24 h | ✅ | Teste + E2E + captura 43 |
+| Botão de amigos no topo do menu com contagem de online e de pedidos | ✅ | E2E |
+
+**Correções que o E2E encontrou:** (1) num PC lento, o navegador ocupado compilando os gráficos do menu demorava mais de 5 s para se identificar no servidor de jogo, que respondia como "sessão inválida", e o cliente deslogava o jogador. Agora o prazo é de 15 s, a demora não é tratada como sessão inválida e, mesmo quando o token é recusado, o cliente tenta renovar a sessão antes de deslogar. (2) Uma trava de mouse pedida antes de abrir o chat chegava atrasada e "roubava" as teclas digitadas. (3) Uma ressincronização da partida apagava o chat da tela.
+
+**Testes:** 109 no servidor (19 novos), 84 no shared (6 novos), 11 no cliente + E2E das Fases 1–6 repetidos (menu, treino 9/9, multiplayer 11/11, ranqueado 10/10, economia 10/10) + **E2E social com três navegadores** (`scripts/e2e-social.mjs`, 11 etapas).
+
+#### Limites honestos da parte 1
+- **Ranqueado continua individual.** Grupos jogam só no casual. Grupo no ranqueado exige regras de MMR para grupos (ex.: limite de diferença de patente) que ainda não defini.
+- **Sem filtro automático de palavrões.** O chat depende de silenciar, bloquear, denunciar e do banimento de chat aplicado pela moderação (o painel de moderação é a parte 5).
+- **Chat de voz não existe.** A arquitetura para recebê-lo está descrita em `docs/ARCHITECTURE.md`.
+- **Mensagens diretas entre amigos fora do grupo** não foram feitas: a conversa acontece no grupo ou na partida.
+- **Presença e grupos vivem na memória de um processo de jogo.** Com vários processos, a presença e os grupos precisam passar para o Redis (Fase 8). Os eventos da API já passam pelo Redis.
+- **E2E de mapas (5 partidas, ~12 min) não foi repetido** nesta parte: a mudança na fila é coberta pelos E2E multiplayer e ranqueado e pelos testes da fila.
+
+### Partes 2 a 5 ⏳
+Salas personalizadas e espectador · XP, missões, conquistas, medalhas, títulos, eventos, cartão de jogador, clãs e perfil público · replays, kill cam e apresentação do MVP · painel administrativo e teclas remapeáveis.
+
+## Fase 8 ⏳
+Finalização (carga, segurança, Docker, CI, deploy).

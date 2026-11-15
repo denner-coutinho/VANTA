@@ -11,6 +11,10 @@ import { MenuScene, type GraphicsQuality } from "../three/MenuScene";
 import { uiSound } from "../audio/ui-sound";
 import { ProfilePanel } from "./ProfilePanel";
 import { SettingsPanel, loadSettings, type LocalSettings } from "./SettingsPanel";
+import { useSocial } from "../social/SocialContext";
+import { FriendsPanel, PresenceDot } from "../social/FriendsPanel";
+import { PartyWidget } from "../social/PartyWidget";
+import { PRESENCE_LABEL } from "@vanta/shared";
 
 interface Character { id: string; code: string; name: string; role: string; lore: string; personality: string; primaryColor: string }
 interface Season { name: string; endsAt: string }
@@ -33,7 +37,8 @@ export function MainMenu() {
   const [charIndex, setCharIndex] = useState(0);
   const [events, setEvents] = useState<ActiveEvent[] | null>(null);
   const [season, setSeason] = useState<Season | null>(null);
-  const [panel, setPanel] = useState<"profile" | "settings" | null>(null);
+  const [panel, setPanel] = useState<"profile" | "settings" | "friends" | null>(null);
+  const social = useSocial();
   const [settings, setSettings] = useState<LocalSettings>(loadSettings);
 
   useEffect(() => {
@@ -49,7 +54,6 @@ export function MainMenu() {
 
   // Partida em andamento (ex.: recarregou a página ou caiu a conexão): volta direto para ela.
   useEffect(() => {
-    gameSocket.connect();
     if (gameSocket.inMatch) navigate("/partida");
     return gameSocket.on((m) => {
       if ((m.t === "welcome" && m.inMatch) || m.t === "match") navigate("/partida");
@@ -57,6 +61,7 @@ export function MainMenu() {
   }, [navigate]);
 
   const character = characters[charIndex];
+  const onlineFriends = (social.overview?.friends ?? []).filter((f) => (social.presence.get(f.id) ?? "offline") !== "offline");
   const equippedSkin = (character && me?.cosmetics.characters[character.code]) || null;
   const points = me?.ranked?.points ?? 0;
   const rp = useMemo(() => rankProgress(points), [points]);
@@ -111,6 +116,10 @@ export function MainMenu() {
               <strong>{me.user.username}</strong>
               <span className="label" style={placed ? { color: rp.rank.color } : undefined}>{placed ? rp.rank.name : "Sem patente"}</span>
             </div>
+          </button>
+          <button className="icon-btn panel cut cut-sm friends-btn" aria-label="Amigos" title="Amigos" onClick={() => setPanel("friends")} onMouseEnter={() => uiSound.hover()} data-testid="open-friends">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5" /><circle cx="17" cy="9" r="2.6" /><path d="M16 14.6c2.9-.2 5 1.4 5.5 4.4" /></svg>
+            {(social.overview?.incoming.length ?? 0) > 0 ? <span className="badge alert-badge">{social.overview!.incoming.length}</span> : social.onlineFriends > 0 ? <span className="badge">{social.onlineFriends}</span> : null}
           </button>
           <button className="icon-btn panel cut cut-sm" aria-label="Configurações" onClick={() => setPanel("settings")} onMouseEnter={() => uiSound.hover()}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
@@ -189,9 +198,28 @@ export function MainMenu() {
           ))}
         </div>
 
-        <div className="panel cut side-block">
-          <div className="side-head"><span className="label">Amigos online</span><span className="pill">0</span></div>
-          <span className="muted">Nenhum amigo online. O sistema de amigos e convites chega na Fase 7.</span>
+        <PartyWidget onInvite={() => setPanel("friends")} />
+
+        <div className="panel cut side-block" data-testid="menu-friends">
+          <div className="side-head">
+            <span className="label">Amigos online</span>
+            <span className="pill" data-testid="friends-online-count">{social.onlineFriends}</span>
+          </div>
+          {onlineFriends.length === 0 ? (
+            <span className="muted">{social.overview?.friends.length ? "Nenhum amigo online agora." : "Adicione amigos para jogar em grupo."}</span>
+          ) : (
+            <ul className="mini-friends">
+              {onlineFriends.slice(0, 5).map((f) => {
+                const st = social.presence.get(f.id) ?? "offline";
+                return (
+                  <li key={f.id}><PresenceDot state={st} /><strong>{f.username}</strong><span className="muted small">{PRESENCE_LABEL[st]}</span></li>
+                );
+              })}
+            </ul>
+          )}
+          <button className="btn-mini" onClick={() => setPanel("friends")} data-testid="open-friends-side">
+            Abrir amigos{social.overview?.incoming.length ? ` · ${social.overview.incoming.length} pedido(s)` : ""}
+          </button>
         </div>
       </aside>
 
@@ -201,6 +229,7 @@ export function MainMenu() {
       </footer>
 
       {panel === "profile" && <ProfilePanel onClose={() => setPanel(null)} />}
+      {panel === "friends" && <FriendsPanel onClose={() => setPanel(null)} />}
       {panel === "settings" && <SettingsPanel value={settings} onChange={setSettings} onClose={() => setPanel(null)} />}
     </div>
   );

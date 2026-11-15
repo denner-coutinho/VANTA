@@ -220,6 +220,8 @@ model User {
   friendRequestsRecv   FriendRequest[]          @relation("FriendRequestTo")
   blocks               UserBlock[]              @relation("Blocker")
   blockedBy            UserBlock[]              @relation("Blocked")
+  mutes                UserMute[]               @relation("Muter")
+  mutedBy              UserMute[]               @relation("Muted")
   clanMembership       ClanMember?
   clansOwned           Clan[]                   @relation("ClanOwner")
   missions             UserMission[]
@@ -819,6 +821,18 @@ model UserBlock {
   createdAt DateTime @default(now())
 
   @@unique([blockerId, blockedId])
+}
+
+/// Silenciar: esconde o chat de um jogador só para quem silenciou (mais leve que bloquear).
+model UserMute {
+  id        String   @id @default(cuid())
+  muterId   String
+  muter     User     @relation("Muter", fields: [muterId], references: [id], onDelete: Cascade)
+  mutedId   String
+  muted     User     @relation("Muted", fields: [mutedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([muterId, mutedId])
 }
 
 model Clan {
