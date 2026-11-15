@@ -224,6 +224,8 @@ model User {
   mutedBy            UserMute[]               @relation("Muted")
   clanMembership     ClanMember?
   clansOwned         Clan[]                   @relation("ClanOwner")
+  clanInvites        ClanInvite[]             @relation("ClanInviteTarget")
+  clanInvitesSent    ClanInvite[]             @relation("ClanInviteSender")
   missions           UserMission[]
   achievements       UserAchievement[]
   reportsFiled       Report[]                 @relation("Reporter")
@@ -604,8 +606,9 @@ model Match {
   replayHash       String?
   createdAt        DateTime      @default(now())
 
-  players MatchPlayer[]
-  events  MatchEvent[]
+  players   MatchPlayer[]
+  events    MatchEvent[]
+  clanGames ClanMatch[]
 
   @@index([status])
   @@index([mode, type, createdAt])
@@ -848,13 +851,51 @@ model Clan {
   logoKey     String   @default("default")
   ownerId     String
   owner       User     @relation("ClanOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  /// Pontos de clã (ranking de clãs): +20 vitória, −15 derrota/abandono, em partidas da fila com 2+ membros no mesmo time.
   rating      Float    @default(1500)
   wins        Int      @default(0)
   losses      Int      @default(0)
+  /// Aberto: qualquer um entra. Fechado: só por convite.
+  isOpen      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   members ClanMember[]
+  invites ClanInvite[]
+  matches ClanMatch[]
+
+  @@index([rating(sort: Desc)])
+}
+
+model ClanInvite {
+  id          String   @id @default(cuid())
+  clanId      String
+  clan        Clan     @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation("ClanInviteTarget", fields: [userId], references: [id], onDelete: Cascade)
+  invitedById String
+  invitedBy   User     @relation("ClanInviteSender", fields: [invitedById], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([clanId, userId])
+  @@index([userId])
+}
+
+/// Partida da fila em que o clã jogou com 2+ membros no mesmo time (histórico e ranking de clãs).
+model ClanMatch {
+  id          String      @id @default(cuid())
+  clanId      String
+  clan        Clan        @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  matchId     String
+  match       Match       @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  result      MatchResult
+  pointsDelta Int
+  memberIds   String[]
+  createdAt   DateTime    @default(now())
+
+  @@unique([clanId, matchId])
+  @@index([clanId, createdAt])
 }
 
 model ClanMember {
