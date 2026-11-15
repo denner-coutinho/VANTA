@@ -405,3 +405,4 @@ textarea.input { height: auto; padding: 10px 12px; resize: vertical; }
 .friends-btn .badge.alert-badge { background: var(--c-red); color: #fff; }
 .friends-drawer .party-widget { background: rgba(255, 255, 255, .03); }
 .match-chat .chat-log.empty { display: none; }
+.menu-side { max-height: calc(100vh - 150px); overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
