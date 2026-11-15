@@ -12,13 +12,16 @@ import "./styles/screens.css";
 import { App } from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import { ToastProvider } from "./components/ui";
+import { SocialProvider } from "./social/SocialContext";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
         <ToastProvider>
-          <App />
+          <SocialProvider>
+            <App />
+          </SocialProvider>
         </ToastProvider>
       </AuthProvider>
     </BrowserRouter>

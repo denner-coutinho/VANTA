@@ -92,7 +92,8 @@ interface QueueTicket {
 const queueKey = (mode: QueueMode, ranked: boolean) => `${mode}:${ranked ? "ranked" : "casual"}`;
 
 const MAX_MSGS_PER_SEC = 150;
-const HELLO_TIMEOUT_MS = 5000;
+/** Prazo para o hello depois de abrir o WebSocket (navegador ocupado compilando shaders pode demorar). */
+const HELLO_TIMEOUT_MS = 15_000;
 
 /**
  * Servidor de jogo: WebSocket autenticado com o mesmo JWT de acesso da API,
@@ -211,7 +212,8 @@ export class GameServer {
       msgWindowStart: Date.now(), msgCount: 0, helloTimer: null,
       friends: new Set(), blockRel: new Set(), muted: new Set(), chatBanUntil: 0, chatTimes: [], presence: "offline", loadout: null,
     };
-    client.helloTimer = setTimeout(() => ws.close(4001, "hello timeout"), HELLO_TIMEOUT_MS);
+    // 4000 (e não 4001): demorar para se identificar não é sessão inválida; o cliente só reconecta.
+    client.helloTimer = setTimeout(() => ws.close(4000, "hello timeout"), HELLO_TIMEOUT_MS);
     ws.on("message", (data, isBinary) => {
       if (isBinary) return ws.close(4002, "binary not supported");
       const now = Date.now();

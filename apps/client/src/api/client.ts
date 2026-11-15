@@ -82,6 +82,9 @@ export class ApiClient {
   post<T>(path: string, body?: unknown, opts?: { auth?: boolean }) {
     return this.request<T>("POST", path, body, opts);
   }
+  del<T>(path: string) {
+    return this.request<T>("DELETE", path);
+  }
 }
 
 export const api = new ApiClient(import.meta.env.VITE_API_URL ?? "/api");

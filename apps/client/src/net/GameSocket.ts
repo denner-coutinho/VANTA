@@ -95,14 +95,15 @@ class GameSocket {
         this.setStatus("offline");
         return;
       }
-      if (e.code === 4001) api.setAccessToken(null);
       if (!this.wanted) {
         this.setStatus("idle");
         return;
       }
       const delay = Math.min(8000, 500 * 2 ** this.retry++);
       this.setStatus("reconnecting");
-      this.retryTimer = window.setTimeout(() => void this.open(), delay);
+      // 4001: o servidor recusou o token (expirado ou revogado). Renova pelo cookie antes de tentar de novo;
+      // se a renovação falhar, a própria API desloga (sessão realmente encerrada).
+      this.retryTimer = window.setTimeout(() => void (e.code === 4001 ? api.refresh().then((r) => { if (r && this.wanted) void this.open(); }) : this.open()), delay);
     };
   }
 

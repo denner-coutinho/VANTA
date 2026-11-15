@@ -6,19 +6,12 @@ import { gameSocket, type SocketStatus } from "../net/GameSocket";
 import { Button } from "../components/ui";
 import { RankEmblem } from "../components/RankEmblem";
 import { uiSound } from "../audio/ui-sound";
+import { loadLoadout, saveLoadout } from "../game/loadout";
+import { useSocial } from "../social/SocialContext";
+import { useAuth } from "../auth/AuthContext";
+import { PartyWidget } from "../social/PartyWidget";
 
-export const LOADOUT_KEY = "vanta.trainingLoadout";
-export const DEFAULT_LOADOUT = ["VK7_LAMINA", "P9_FAISCA", "LR1_HORIZONTE"];
 const CATEGORY_LABEL: Record<WeaponStats["category"], string> = { ASSAULT_RIFLE: "Rifle de assalto", SMG: "Submetralhadora", SNIPER: "Sniper", SHOTGUN: "Escopeta", PISTOL: "Pistola" };
-
-export function loadLoadout(): string[] {
-  try {
-    const l = JSON.parse(localStorage.getItem(LOADOUT_KEY) ?? "null");
-    return Array.isArray(l) && l.length === 3 ? l : DEFAULT_LOADOUT;
-  } catch {
-    return DEFAULT_LOADOUT;
-  }
-}
 
 const MODE_INFO: Record<QueueMode, string> = {
   "1v1": "Duelo direto. Melhor de 9 rounds (vence quem fizer 5).",
@@ -40,6 +33,10 @@ export function PlayScreen() {
   const [weapons, setWeapons] = useState<WeaponStats[] | null>(null);
   const [loadout, setLoadout] = useState<string[]>(loadLoadout);
   const [editing, setEditing] = useState(false);
+  const { party } = useSocial();
+  const { me } = useAuth();
+  const inGroup = !!party && party.members.length > 1;
+  const isLeader = !inGroup || party!.leaderId === me?.user.id;
 
   useEffect(() => {
     api.get<Array<Record<string, unknown>>>("/content/weapons").then((rows) => setWeapons(rows.map(weaponStatsFromRow))).catch(() => setWeapons([]));
@@ -96,7 +93,9 @@ export function PlayScreen() {
     const next = [...loadout];
     next[slot] = code;
     setLoadout(next);
-    try { localStorage.setItem(LOADOUT_KEY, JSON.stringify(next)); } catch { /* sem armazenamento */ }
+    saveLoadout(next);
+    // O servidor guarda o arsenal para quando o líder do grupo entrar na fila.
+    gameSocket.send({ t: "loadout", loadout: next });
   };
 
   const elapsed = queue ? Math.max(0, Math.floor((now - queue.since) / 1000)) : 0;
@@ -105,6 +104,8 @@ export function PlayScreen() {
   const modeStatus = overview?.modes.find((x) => x.mode === mode) ?? null;
   const rankDef = modeStatus?.rankOrder ? RANKS[modeStatus.rankOrder - 1]! : null;
   const rankedBlocked = ranked && (!season || cooldown > 0);
+  // Grupo: só o líder procura partida, só no casual e num modo em que o grupo cabe num time.
+  const groupBlock = !inGroup ? null : !isLeader ? "Só o líder do grupo pode procurar partida." : ranked ? "O ranqueado é individual por enquanto: grupos jogam no casual." : party!.members.length > MODES[mode].teamSize ? `Seu grupo tem ${party!.members.length} pessoas: escolha um modo com times desse tamanho.` : null;
   const byCode = new Map((weapons ?? []).map((w) => [w.code, w]));
 
   return (
@@ -199,11 +200,13 @@ export function PlayScreen() {
                   <span className="muted">Só jogadores reais: a partida começa quando a fila completa. O mapa segue a rotação: Neon District, Desert Protocol, Frost Base, Blackout Lab e Orbital Zero. Não altera pontos de patente.</span>
                 </div>
               )}
-              <Button onClick={search} disabled={status !== "online" || rankedBlocked} data-testid="find-match">{ranked ? "Procurar ranqueada" : "Procurar partida"}</Button>
+              {groupBlock && <span className="muted group-block" data-testid="group-block">{groupBlock}</span>}
+              <Button onClick={search} disabled={status !== "online" || rankedBlocked || !!groupBlock} data-testid="find-match">{inGroup ? `Procurar com o grupo (${party!.members.length})` : ranked ? "Procurar ranqueada" : "Procurar partida"}</Button>
             </>
           )}
         </div>
         {error && <div className="alert error">{error}</div>}
+        <PartyWidget />
       </div>
     </div>
   );

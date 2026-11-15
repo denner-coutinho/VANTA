@@ -10,6 +10,9 @@ import { Button } from "../components/ui";
 import { RankEmblem } from "../components/RankEmblem";
 import { useAuth } from "../auth/AuthContext";
 import { uiSound } from "../audio/ui-sound";
+import { MatchChat } from "../social/MatchChat";
+import { ReportDialog } from "../social/ReportDialog";
+import { useSocial } from "../social/SocialContext";
 
 const CATEGORY_LABEL: Record<WeaponStats["category"], string> = { ASSAULT_RIFLE: "Rifle de assalto", SMG: "Submetralhadora", SNIPER: "Sniper", SHOTGUN: "Escopeta", PISTOL: "Pistola" };
 const toGame = (s: LocalSettings): GameSettings => ({ sensitivity: s.sensitivity, fov: s.fov, maxFps: s.maxFps, volume: s.masterVolume, quality: s.quality });
@@ -39,6 +42,9 @@ export function MatchScreen() {
   const [result, setResult] = useState<Extract<OnlineEvent, { type: "match_end" }> | null>(null);
   const [status, setStatus] = useState<SocketStatus>(gameSocket.status);
   const [error, setError] = useState<string | null>(null);
+  const [typing, setTyping] = useState(false);
+  const [reporting, setReporting] = useState<{ id: string; username: string } | null>(null);
+  const social = useSocial();
 
   useEffect(() => {
     api.get<Array<Record<string, unknown>>>("/content/weapons").then((rows) => setWeapons(new Map(rows.map((r) => { const w = weaponStatsFromRow(r); return [w.code, w]; })))).catch((e: Error) => setError(e.message));
@@ -320,7 +326,17 @@ export function MatchScreen() {
                       const row = hud.players.find((x) => x.id === s.id);
                       return (
                         <tr key={s.id} className={s.id === info.you ? "me" : ""}>
-                          <td>{s.username}{s.mvp && <span className="mvp">MVP</span>}{(s.abandoned || row?.connected === false) && <span className="muted"> · {s.abandoned ? "abandonou" : "desconectado"}</span>}</td>
+                          <td>
+                            {s.username}{s.mvp && <span className="mvp">MVP</span>}{(s.abandoned || row?.connected === false) && <span className="muted"> · {s.abandoned ? "abandonou" : "desconectado"}</span>}
+                            {result && s.id !== info.you && (
+                              <span className="sb-actions">
+                                {!social.overview?.friends.some((f) => f.id === s.id) && !social.overview?.outgoing.some((r) => r.user.id === s.id) && (
+                                  <button className="btn-mini" onClick={() => void social.addFriend(s.username)} data-testid={`sb-add-${s.username}`}>Adicionar</button>
+                                )}
+                                <button className="btn-mini ghost" onClick={() => setReporting({ id: s.id, username: s.username })} data-testid={`sb-report-${s.username}`}>Denunciar</button>
+                              </span>
+                            )}
+                          </td>
                           <td>{s.kills}</td><td>{s.deaths}</td><td>{s.assists}</td>
                           {result && <><td>{s.headshots}</td><td>{s.damage}</td><td>{s.shots ? Math.round(((s.hits ?? 0) / s.shots) * 100) : 0}%</td></>}
                         </tr>
@@ -340,7 +356,19 @@ export function MatchScreen() {
         </div>
       )}
 
-      {!locked && !result && (
+      {hud && (
+        <MatchChat
+          teamChat={info.mode !== "1v1"}
+          myTeamIds={new Set(info.players.filter((p) => p.team === myTeam).map((p) => p.id))}
+          onTyping={setTyping}
+          resume={() => !result && rt.current?.start()}
+          disabled={!!result}
+        />
+      )}
+
+      {reporting && <ReportDialog user={reporting} matchId={info.matchId} onClose={() => setReporting(null)} />}
+
+      {!locked && !result && !typing && (
         <div className="overlay-center">
           <div className="pause panel cut stagger" data-testid="match-menu">
             <div className="label">{MODES[info.mode].label} · a partida continua</div>
