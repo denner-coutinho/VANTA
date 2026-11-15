@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { MAP_REGISTRY, MODES, RANKS, weaponStatsFromRow, type MatchInfo, type PlayerMatchStats, type RankedResultWire, type WeaponStats } from "@vanta/shared";
+import { MEDALS, MAP_REGISTRY, MODES, RANKS, type MatchProgressWire, weaponStatsFromRow, type MatchInfo, type PlayerMatchStats, type RankedResultWire, type WeaponStats } from "@vanta/shared";
 import { api } from "../api/client";
 import { gameSocket, type SocketStatus } from "../net/GameSocket";
 import { OnlineRuntime, TEAM_COLORS, type OnlineEvent, type OnlineHud } from "../game/OnlineRuntime";
@@ -24,6 +24,7 @@ export function MatchScreen() {
   const navigate = useNavigate();
   const { reloadMe } = useAuth();
   const [rankedRes, setRankedRes] = useState<RankedResultWire | null>(gameSocket.rankedResult);
+  const [progress, setProgress] = useState<MatchProgressWire | null>(gameSocket.progress);
   const host = useRef<HTMLDivElement>(null);
   const rt = useRef<OnlineRuntime | null>(null);
   const [info, setInfo] = useState<MatchInfo | null>(gameSocket.match);
@@ -68,6 +69,9 @@ export function MatchScreen() {
       } else if (m.t === "left_match") {
         // Partida de sala: quem sai volta para o lobby da sala (continua nela).
         navigate(gameSocket.room ? "/sala" : "/menu", { replace: true });
+      } else if (m.t === "progress") {
+        setProgress(m);
+        void reloadMe().catch(() => undefined);
       } else if (m.t === "ranked_result") {
         setRankedRes(m);
         void reloadMe().catch(() => undefined);
@@ -347,6 +351,9 @@ export function MatchScreen() {
                   </tbody>
                 </table>
               ))}
+              {result && !info.rules && (
+                progress && progress.matchId === info.matchId ? <ProgressCard p={progress} /> : <div className="progress-card pending muted small" data-testid="progress-pending">Calculando XP e medalhas…</div>
+              )}
               {result && (
                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                   {info.rules ? (
@@ -434,3 +441,25 @@ function RankedResultCard({ r }: { r: RankedResultWire }) {
     </div>
   );
 }
+
+/** XP, nível, medalhas, missões e conquistas da partida (calculados e gravados pelo servidor). */
+function ProgressCard({ p }: { p: MatchProgressWire }) {
+  const up = p.levelAfter > p.levelBefore;
+  return (
+    <div className="progress-card" data-testid="progress-card">
+      <div className="progress-xp">
+        <strong data-testid="progress-xp">+{p.xp} XP</strong>
+        {up ? <span className="pill level-up" data-testid="level-up">Subiu para o nível {p.levelAfter}!</span> : <span className="muted small">Nível {p.levelAfter}</span>}
+        <div className="xp-bar"><i style={{ width: `${p.xpForNext ? Math.round((p.xpIntoLevel / p.xpForNext) * 100) : 100}%` }} /></div>
+      </div>
+      {p.medals.length > 0 && (
+        <div className="medal-row" data-testid="progress-medals">
+          {p.medals.map((m) => <span key={m} className="medal-chip" title={MEDALS[m].description}>{MEDALS[m].name}</span>)}
+        </div>
+      )}
+      {p.missionsCompleted.map((m) => <div key={m} className="small">Missão concluída: <b>{m}</b> (resgate em Progresso)</div>)}
+      {p.achievementsUnlocked.map((a) => <div key={a.name} className="small">Conquista: <b>{a.name}</b>{a.title ? ` · título “${a.title}”` : ""}</div>)}
+    </div>
+  );
+}
+

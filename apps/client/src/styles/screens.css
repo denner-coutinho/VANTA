@@ -455,3 +455,29 @@ textarea.input { height: auto; padding: 10px 12px; resize: vertical; }
 .spec-help { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(9,11,18,.6); padding: 6px 12px; }
 .spec-exit { position: absolute; right: 20px; bottom: 20px; }
 .spectate-screen .hud-feed { pointer-events: none; }
+
+/* ───────────── Progressão (Fase 7, parte 3) ───────────── */
+.xp-bar { height: 6px; background: rgba(255,255,255,.08); overflow: hidden; }
+.xp-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--c-blue), var(--c-purple, #9b5cff)); transition: width .4s; }
+.xp-bar.big { height: 10px; }
+.progress-head { display: grid; grid-template-columns: auto 1fr 260px; gap: 20px; align-items: center; padding: 18px 22px; --cut: 12px; }
+.level-badge { display: flex; flex-direction: column; align-items: center; min-width: 80px; }
+.level-badge strong { font-family: var(--f-display); font-size: 44px; line-height: 1; }
+.progress-main { display: flex; flex-direction: column; gap: 8px; }
+.mission-group { display: flex; flex-direction: column; gap: 10px; }
+.mission-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.mission { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; --cut: 10px; border-left: 3px solid var(--c-metal-hi); }
+.mission.done { border-left-color: var(--c-green); }
+.mission.locked { opacity: .7; }
+.mission-foot { display: flex; align-items: center; gap: 10px; }
+.mission-foot .reward { color: var(--c-amber); margin-left: auto; }
+.medal-count { color: var(--c-amber); font-size: 14px; }
+.progress-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; margin: 10px 0; background: rgba(40,123,255,.07); border: 1px solid var(--c-metal); }
+.progress-card.pending { background: none; }
+.progress-xp { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: center; }
+.progress-xp strong { font-family: var(--f-display); font-size: 24px; color: var(--c-blue); }
+.progress-xp .xp-bar { grid-column: 1 / -1; }
+.level-up { background: rgba(155, 92, 255, .16); color: var(--c-purple, #b48cff); justify-self: start; }
+.medal-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.medal-chip { font-family: var(--f-display); font-size: 12px; letter-spacing: .06em; padding: 3px 9px; border: 1px solid var(--c-amber); color: var(--c-amber); background: rgba(255,184,0,.08); }
+@media (max-width: 860px) { .progress-head { grid-template-columns: 1fr; } }
