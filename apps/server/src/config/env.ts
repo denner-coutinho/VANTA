@@ -24,6 +24,9 @@ const envSchema = z.object({
   REDIS_KEY_PREFIX: z.string().default("vanta:"),
   /** Caminho público das rotas /auth, como o NAVEGADOR as vê (o cliente acessa a API por /api). */
   REFRESH_COOKIE_PATH: z.string().startsWith("/").default("/api/auth"),
+  /** Stripe (Fase 6). Sem as duas chaves, a compra de VANTA COINS fica desativada (nunca simulada). */
+  STRIPE_SECRET_KEY: z.string().optional().default("").refine((k) => !k || /^(sk|rk)_(test|live)_/.test(k), "STRIPE_SECRET_KEY deve começar com sk_test_, sk_live_, rk_test_ ou rk_live_"),
+  STRIPE_WEBHOOK_SECRET: z.string().optional().default("").refine((k) => !k || k.startsWith("whsec_"), "STRIPE_WEBHOOK_SECRET deve começar com whsec_"),
 });
 
 export type AppConfig = z.infer<typeof envSchema> & { corsOrigins: string[]; isProd: boolean };
@@ -37,6 +40,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const c = parsed.data;
   if (c.NODE_ENV === "production" && c.JWT_ACCESS_SECRET.startsWith("troque-este")) {
     throw new Error("JWT_ACCESS_SECRET padrão não pode ser usado em produção.");
+  }
+  if (!!c.STRIPE_SECRET_KEY !== !!c.STRIPE_WEBHOOK_SECRET) {
+    throw new Error("Configure STRIPE_SECRET_KEY e STRIPE_WEBHOOK_SECRET juntas (ou nenhuma, para desativar pagamentos).");
   }
   return {
     ...c,

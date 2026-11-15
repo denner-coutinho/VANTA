@@ -19,9 +19,9 @@ interface Season { name: string; endsAt: string }
 const NAV: Array<{ key: string; label: string; phase?: number; hint: string }> = [
   { key: "play", label: "Jogar", hint: "1v1 · 2v2 · 3v3 · treino" },
   { key: "ranked", label: "Ranqueado", hint: "Patentes, temporada e ranking" },
-  { key: "rooms", label: "Salas", phase: 3, hint: "Salas personalizadas com código" },
-  { key: "store", label: "Loja", phase: 6, hint: "Skins e cosméticos com VANTA COINS" },
-  { key: "inventory", label: "Inventário", phase: 6, hint: "Equipar itens adquiridos" },
+  { key: "rooms", label: "Salas", phase: 7, hint: "Salas personalizadas com código" },
+  { key: "store", label: "Loja", hint: "Skins e VANTA COINS" },
+  { key: "inventory", label: "Inventário", hint: "Equipar skins e emblemas" },
   { key: "profile", label: "Perfil", hint: "Conta, progresso e segurança" },
 ];
 
@@ -57,6 +57,7 @@ export function MainMenu() {
   }, [navigate]);
 
   const character = characters[charIndex];
+  const equippedSkin = (character && me?.cosmetics.characters[character.code]) || null;
   const points = me?.ranked?.points ?? 0;
   const rp = useMemo(() => rankProgress(points), [points]);
   // A patente só aparece depois das partidas de classificação.
@@ -68,6 +69,8 @@ export function MainMenu() {
     if (key === "profile") return setPanel("profile");
     if (key === "play") return navigate("/jogar");
     if (key === "ranked") return navigate("/ranqueado");
+    if (key === "store") return navigate("/loja");
+    if (key === "inventory") return navigate("/inventario");
     if (phase) {
       uiSound.error();
       toast(`Fase ${phase} do roadmap`, "Este modo ainda está em desenvolvimento e será liberado quando for testado de ponta a ponta.");
@@ -86,14 +89,14 @@ export function MainMenu() {
 
   return (
     <div className="screen menu">
-      <MenuScene accent={character?.primaryColor ?? "#287BFF"} character={character?.code ?? "RAVEN"} quality={settings.quality as GraphicsQuality} />
+      <MenuScene accent={equippedSkin?.glow ?? character?.primaryColor ?? "#287BFF"} character={character?.code ?? "RAVEN"} skin={equippedSkin} quality={settings.quality as GraphicsQuality} />
       <div className="menu-shade" />
       <div className="scanlines" />
 
       <header className="menu-top">
         <Logo size="sm" />
         <div className="menu-top-right">
-          <div className="chip panel cut-sm cut" title="VANTA COINS">
+          <div className="chip panel cut-sm cut wallet-chip" title="VANTA COINS: abrir a loja" role="button" tabIndex={0} onClick={() => navigate("/loja?aba=vc")}>
             <span className="vc-icon">VC</span>
             <strong data-testid="wallet-balance">{me.wallet.balance.toLocaleString("pt-BR")}</strong>
           </div>

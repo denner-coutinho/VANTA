@@ -1,5 +1,7 @@
 import type { PrismaClient } from "@vanta/db";
-import { rankForPoints, seasonSoftReset } from "@vanta/shared";
+import { SEASON_REWARD_VC, rankForPoints, seasonEmblemCode, seasonSoftReset } from "@vanta/shared";
+import { postLedger } from "../economy/wallet.js";
+import { grantItem } from "../economy/store.service.js";
 import { Errors } from "../../lib/errors.js";
 
 const MODES_DB = ["DUEL_1V1", "TEAM_2V2", "TEAM_3V3"] as const;
@@ -9,8 +11,8 @@ export type SeasonSnapshotEntry = { position: number; userId: string; username: 
 
 /**
  * Fecha a temporada: publica o ranking final (até 100 por modo) e encerra a pontuação.
- * As recompensas de fim de temporada (VANTA COINS / itens) são entregues pela economia (Fase 6)
- * a partir deste snapshot; aqui nada é creditado.
+ * Recompensas (na mesma transação, uma vez por jogador): quem terminou a classificação em
+ * pelo menos um modo recebe VANTA COINS pelo melhor tier alcançado e o emblema da temporada.
  */
 export async function closeSeason(prisma: PrismaClient, seasonId: string, now = new Date()) {
   return prisma.$transaction(async (tx) => {
@@ -27,8 +29,29 @@ export async function closeSeason(prisma: PrismaClient, seasonId: string, now = 
       });
       snapshot[mode] = top.map((r, i) => ({ position: i + 1, userId: r.userId, username: r.user.username, points: r.points, rankOrder: rankForPoints(r.points).order, wins: r.wins, losses: r.losses }));
     }
-    return tx.rankedSeason.update({ where: { id: seasonId }, data: { isActive: false, closedAt: now, endsAt: season.endsAt > now ? now : season.endsAt, leaderboardSnapshot: snapshot } });
-  });
+    // Melhor patente final de cada jogador classificado, considerando os três modos.
+    const placed = await tx.rankedRating.findMany({ where: { seasonId, placementLeft: 0 }, select: { userId: true, points: true } });
+    const best = new Map<string, number>();
+    for (const r of placed) best.set(r.userId, Math.max(best.get(r.userId) ?? 0, r.points));
+    const emblem = await tx.storeItem.findUnique({ where: { code: seasonEmblemCode(season.number) } });
+    let rewarded = 0;
+    for (const [userId, points] of best) {
+      const rank = rankForPoints(points);
+      await postLedger(tx, {
+        userId,
+        amount: SEASON_REWARD_VC[rank.tier],
+        type: "REWARD_CREDIT",
+        idempotencyKey: `season:${seasonId}:${userId}`,
+        description: `Recompensa da ${season.name} (${rank.name})`,
+        meta: { seasonId, rankOrder: rank.order },
+      });
+      if (emblem) await grantItem(tx, userId, emblem.id, "SEASON_REWARD");
+      rewarded++;
+    }
+
+    const closed = await tx.rankedSeason.update({ where: { id: seasonId }, data: { isActive: false, closedAt: now, endsAt: season.endsAt > now ? now : season.endsAt, leaderboardSnapshot: snapshot } });
+    return Object.assign(closed, { rewardedPlayers: rewarded });
+  }, { timeout: 120_000 });
 }
 
 /**
@@ -55,6 +78,9 @@ export async function startSeason(prisma: PrismaClient, input: { name?: string; 
             placementMatches: previous?.placementMatches ?? 5,
           },
         });
+    const emblem = { type: "EMBLEM" as const, name: `Emblema · ${season.name}`, description: `Entregue a quem terminou a classificação na ${season.name}.`, rarity: "SEASONAL" as const, priceVc: null, imageKey: `emblem_season_${season.number}`, seasonId: season.id };
+    await tx.storeItem.upsert({ where: { code: seasonEmblemCode(season.number) }, update: {}, create: { ...emblem, code: seasonEmblemCode(season.number) } });
+
     let carried = 0;
     if (previous) {
       const old = await tx.rankedRating.findMany({ where: { seasonId: previous.id, placementLeft: 0 } });

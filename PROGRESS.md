@@ -159,5 +159,39 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **Votação de mapa** continua fora: o mapa segue o rodízio também no ranqueado.
 - A partir desta fase o desenvolvimento passou a ser feito com o modelo Claude Fable 5.2 (as Fases 1–4 foram feitas com o Claude Opus). Isso é só a ferramenta de desenvolvimento: nenhum conteúdo do jogo usa IA em tempo de execução.
 
-## Fases 6–8 ⏳
-Economia (VC, loja, inventário, Stripe Checkout + webhooks) · Sistemas sociais (amigos, clãs, missões, replays, kill cam) · Finalização (carga, segurança, Docker, CI, deploy).
+## Fase 6 — Economia ✅ (15/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **Carteira de VANTA COINS com razão contábil** somente-inserção: todo crédito e débito é um lançamento com chave de idempotência; o saldo é o cache da soma, com bloqueio otimista; nunca fica negativo | ✅ | `economy.test.ts` (razão = saldo em todos os cenários) |
+| **Saldo e preço sempre do servidor**: o cliente só diz qual item quer; preço ou saldo enviados pelo navegador são ignorados | ✅ | Teste + E2E (compra com preço adulterado cobra o preço do banco) |
+| **Loja de cosméticos**: 14 skins de arma e 8 de operador, preço por raridade (300 / 600 / 1.200 / 2.000 VC), sem caixas aleatórias | ✅ | Seed a partir de `packages/shared/src/cosmetics.ts` + captura 34 |
+| **Compra com VC**: débito e entrega do item na mesma transação; sem compra repetida, nem com 5 cliques simultâneos; compras paralelas nunca passam do saldo | ✅ | Testes de concorrência |
+| **Inventário e equipar**: uma skin por operador e uma por arma; emblemas são de coleção | ✅ | Testes + E2E + captura 36 |
+| **Skins aparecem no jogo**: operador no menu e para os outros jogadores na partida; arma em 1ª pessoa (também no treino). Só cor e padrão: mesma silhueta e mesma hitbox | ✅ | E2E (partida real) + capturas 33 a 35 |
+| **Prévia 3D na loja** com os mesmos modelos do jogo | ✅ | Capturas 33 e 34 |
+| **Compra de VC com Stripe Checkout**: o cartão é digitado na página da Stripe; o jogo não vê nem guarda dados de cartão; pedido com valores copiados do pacote; e-mail confirmado obrigatório | ✅ (código e testes) | `payments.ts` + testes com eventos assinados |
+| **Webhook assinado** é o único caminho que credita: assinatura conferida, evento gravado uma vez, pedido creditado uma vez, valor pago conferido com o pedido, pagamento assíncrono (Pix/boleto) só credita quando confirmado, sessão expirada encerra o pedido | ✅ (código e testes) | 6 testes de webhook |
+| **Estorno e chargeback** retiram as moedas (proporcional no estorno parcial); se o jogador já gastou, o saldo zera e o que faltou fica registrado; contestação vencida devolve | ✅ (código e testes) | Teste |
+| **Sem chaves da Stripe, a compra de VC fica desativada** e a tela avisa. Nada é simulado | ✅ | Teste + E2E + captura 37 |
+| **Recompensas de fim de temporada**: VC pelo melhor tier alcançado (100 a 1.000) e emblema da temporada, uma vez por jogador, só para quem terminou a classificação | ✅ | Teste |
+| **Ajuste de saldo pelo administrador** (`POST /admin/wallet/adjust`), idempotente e auditado | ✅ | Teste + E2E |
+| Histórico da carteira paginado | ✅ | Teste + E2E |
+
+**Testes:** 90 no servidor (23 novos de economia), 78 no shared (4 novos de cosméticos), 11 no cliente + E2E das Fases 1–5 + **E2E Fase 6** (`scripts/e2e-economy.mjs`, 10 etapas): loja, ajuste administrativo auditado, compras com saldo conferido no banco e no razão, servidor recusando compra repetida e preço adulterado, menu e inventário com a skin, aviso de pagamentos desativados e uma partida 1v1 real em que o adversário recebe a skin.
+
+### Limites honestos da Fase 6
+- **A compra real com a Stripe não foi feita de ponta a ponta.** Não há chaves da Stripe neste ambiente e o contêiner não alcança `api.stripe.com`. A criação do Checkout é testada com um cliente Stripe falso (a sessão não sai para a rede), e o webhook é testado com eventos assinados pela própria biblioteca da Stripe, com o mesmo segredo que o servidor confere. Para ativar: crie uma conta Stripe, coloque `STRIPE_SECRET_KEY` (sk_test_…) e `STRIPE_WEBHOOK_SECRET` (whsec_…) no `.env` do servidor e aponte um webhook para `https://SEU_DOMINIO/api/payments/stripe/webhook` com os eventos `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`, `charge.dispute.created` e `charge.dispute.closed`. Em desenvolvimento, `stripe listen --forward-to localhost:4000/payments/stripe/webhook` faz o mesmo. Depois disso, um teste com o cartão de teste da Stripe precisa ser feito antes de abrir a loja ao público.
+- **No E2E, o saldo inicial vem de um ajuste administrativo** (rota real e auditada, com a conta promovida pelo comando `create-admin`), porque não há como pagar de verdade aqui.
+- **Preço em reais e impostos**: os pacotes estão em BRL (R$ 9,90 a R$ 149,90). Emissão de nota fiscal, termos de compra e política de reembolso dependem de você (empresa e contador). A Stripe pode calcular impostos (Stripe Tax), mas não ativei.
+- **Menores de idade**: o cadastro guarda a data de nascimento, mas a compra de VC ainda não exige consentimento dos responsáveis. Antes de abrir a loja, decida a regra (bloquear abaixo de 18 ou exigir consentimento).
+- **Skins são cores e padrões** sobre os modelos procedurais, não modelos novos. A silhueta é sempre a mesma, o que também garante que nenhuma skin muda a leitura do jogador em combate.
+- **Outros jogadores não veem a sua skin de arma**: o modelo de arma em 3ª pessoa é um só para todos. Eles veem a skin do operador.
+- **Emblemas são só de coleção** (aparecem no inventário). Mostrar o emblema no perfil e no ranking fica para a Fase 7, com o perfil público.
+- **Sem painel de administração**: pacotes, preços e itens mudam pelo seed ou pelo banco; ajuste de saldo é por rota de ADMIN. O painel é da Fase 7.
+- **Itens não são devolvidos em estorno**: o estorno retira as moedas (e pode zerar o saldo), mas o item comprado com elas continua no inventário. Revogar itens exige decidir qual item sai; ficou registrado como pendência.
+- **E2E de treino ajustado**: ele segurava W por 1,2 s fixos e falhou duas vezes andando 1,44 m. Causa: com o renderizador por software o quadro passa de 100 ms e o jogo simula no máximo 0,1 s por quadro, então o tempo real não vira distância. Agora o teste segura W até andar 1,5 m (até 8 s) e também confere que não desviou para o lado. Numa máquina com GPU isso não acontece.
+- **Salas personalizadas** apareciam no menu como "Fase 3" mas não foram feitas na Fase 3. O menu agora indica Fase 7, junto com os sistemas sociais.
+
+## Fases 7–8 ⏳
+Sistemas sociais (amigos, clãs, salas personalizadas, missões, replays, kill cam, painel de administração) · Finalização (carga, segurança, Docker, CI, deploy).

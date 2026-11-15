@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import type { CharacterSkinMaterial } from "@vanta/shared";
 
 /**
  * Os 8 operadores da VANTA como modelos procedurais (assets originais gerados em código, sem
@@ -76,6 +77,8 @@ export interface CharacterOptions {
   name?: string | null;
   /** "high" = cantos arredondados (menu); "low" = caixas simples (partida). */
   detail?: "high" | "low";
+  /** Skin equipada: troca só as cores (mesma silhueta e mesma hitbox). */
+  skin?: CharacterSkinMaterial | null;
 }
 
 export class CharacterRig {
@@ -129,9 +132,10 @@ export class CharacterRig {
 
   constructor(code: string, opts: CharacterOptions = {}) {
     this.code = isCharacterCode(code) ? code : "RAVEN";
-    const pal = PALETTES[this.code];
+    const base = PALETTES[this.code];
+    const pal: Palette = opts.skin ? { ...base, armor: opts.skin.armor, plate: opts.skin.plate, fabric: opts.skin.fabric, trim: opts.skin.trim } : base;
     this.rounded = opts.detail !== "low";
-    const accentHex = opts.accent ?? pal.trim;
+    const accentHex = opts.skin?.glow ?? opts.accent ?? pal.trim;
 
     const armor = this.mat(new THREE.MeshStandardMaterial({ color: pal.armor, metalness: 0.45, roughness: 0.42 }));
     const plate = this.mat(new THREE.MeshStandardMaterial({ color: pal.plate, metalness: 0.35, roughness: 0.48 }));

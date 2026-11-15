@@ -94,8 +94,8 @@ try {
   });
 
   await step("botão de modo ainda não liberado avisa a fase (sem fingir)", async () => {
-    await page.click('[data-testid="nav-store"]');
-    await page.getByText("Fase 6 do roadmap").waitFor();
+    await page.click('[data-testid="nav-rooms"]');
+    await page.getByText("Fase 7 do roadmap").waitFor();
   });
 
   await step("perfil mostra dados reais e verificação pendente", async () => {

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { CATEGORY_TUNING, type WeaponStats } from "@vanta/shared";
+import { CATEGORY_TUNING, type WeaponSkinMaterial, type WeaponStats } from "@vanta/shared";
 
 /**
  * Arma em primeira pessoa: modelos procedurais por categoria e animações
@@ -81,16 +81,37 @@ export class ViewModel {
     return new THREE.CanvasTexture(c);
   }
 
+  private skins: Record<string, WeaponSkinMaterial> = {};
+  private textures: THREE.Texture[] = [];
+
+  /** Skins equipadas por arma (só cores e padrão). Chame antes de `prepare`. */
+  setSkins(skins: Record<string, WeaponSkinMaterial>) {
+    this.skins = { ...skins };
+  }
+
+  /** Modelo pronto de uma arma (prévia na loja e laboratório de capturas). */
+  getModel(code: string) {
+    return this.models.get(code)?.group ?? null;
+  }
+
   /** Cria (uma vez) o modelo de cada arma do loadout. */
   prepare(weapons: WeaponStats[]) {
     for (const w of weapons) if (!this.models.has(w.code)) this.models.set(w.code, this.buildModel(w));
   }
 
   private buildModel(w: WeaponStats) {
-    const metal = new THREE.MeshStandardMaterial({ color: 0x1e2433, metalness: 0.8, roughness: 0.35 });
-    const polymer = new THREE.MeshStandardMaterial({ color: 0x2c3448, metalness: 0.2, roughness: 0.7 });
-    const accent = new THREE.MeshStandardMaterial({ color: this.accent, emissive: this.accent, emissiveIntensity: 1.4 });
-    const glass = new THREE.MeshPhysicalMaterial({ color: 0x0a1020, metalness: 0.9, roughness: 0.05, emissive: this.accent, emissiveIntensity: 0.25 });
+    const skin = this.skins[w.code];
+    const glow = skin?.glow ?? this.accent;
+    const metal = new THREE.MeshStandardMaterial({ color: skin?.body ?? 0x1e2433, metalness: skin?.metalness ?? 0.8, roughness: 0.35 });
+    const polymer = new THREE.MeshStandardMaterial({ color: skin?.polymer ?? 0x2c3448, metalness: 0.2, roughness: 0.7 });
+    if (skin && skin.pattern !== "solid") {
+      const tex = patternTexture(skin);
+      this.textures.push(tex);
+      polymer.map = tex;
+      polymer.color.set("#ffffff");
+    }
+    const accent = new THREE.MeshStandardMaterial({ color: glow, emissive: glow, emissiveIntensity: 1.4 });
+    const glass = new THREE.MeshPhysicalMaterial({ color: 0x0a1020, metalness: 0.9, roughness: 0.05, emissive: glow, emissiveIntensity: 0.25 });
     const glove = new THREE.MeshStandardMaterial({ color: 0x151821, roughness: 0.9 });
     this.mats.push(metal, polymer, accent, glass, glove);
     const g = new THREE.Group();
@@ -178,7 +199,7 @@ export class ViewModel {
       }
     }
     // Variações por arma: cada modelo do mesmo tipo tem silhueta própria.
-    const secondary = new THREE.MeshStandardMaterial({ color: WEAPON_TRIM[w.code] ?? "#8C96A8", metalness: 0.5, roughness: 0.45 });
+    const secondary = new THREE.MeshStandardMaterial({ color: skin?.trim ?? WEAPON_TRIM[w.code] ?? "#8C96A8", metalness: 0.5, roughness: 0.45 });
     this.mats.push(secondary);
     switch (w.code) {
       case "ARX9_PULSAR": // rifle pesado: guarda-mão largo, carregador curvo duplo, freio de boca
@@ -224,8 +245,10 @@ export class ViewModel {
     if (w.code === "ARX9_PULSAR") muzzleZ -= 0.04;
 
     // Mãos/luvas segurando.
-    b(0.05, 0.05, 0.1, glove, 0.0, -0.06, 0.05).rotation.x = -0.4;
-    if (w.category !== "PISTOL") b(0.05, 0.045, 0.1, glove, -0.01, -0.025, -0.25);
+    const hand = b(0.05, 0.05, 0.1, glove, 0.0, -0.06, 0.05);
+    hand.rotation.x = -0.4;
+    hand.name = "hand";
+    if (w.category !== "PISTOL") b(0.05, 0.045, 0.1, glove, -0.01, -0.025, -0.25).name = "hand";
     g.traverse((o) => (o.renderOrder = 1));
     return { group: g, mag, muzzle: new THREE.Vector3(0, 0.03, muzzleZ), adsOffset: new THREE.Vector3(0, -sightY, 0) };
   }
@@ -332,5 +355,87 @@ export class ViewModel {
   dispose() {
     this.mats.forEach((m) => m.dispose());
     this.geos.forEach((g) => g.dispose());
+    this.textures.forEach((t) => t.dispose());
   }
+}
+
+/**
+ * Padrão da skin desenhado num canvas (sem imagens externas): listras, camuflagem, colmeia ou circuito
+ * na cor `patternColor` sobre a cor do polímero.
+ */
+function patternTexture(skin: WeaponSkinMaterial): THREE.CanvasTexture {
+  const S = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d")!;
+  g.fillStyle = skin.polymer;
+  g.fillRect(0, 0, S, S);
+  const ink = skin.patternColor ?? skin.trim;
+  g.fillStyle = ink;
+  g.strokeStyle = ink;
+  let seed = [...skin.polymer + ink].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  switch (skin.pattern) {
+    case "stripes":
+      for (let i = -S; i < S * 2; i += 32) {
+        g.beginPath();
+        g.moveTo(i, 0);
+        g.lineTo(i + 16, 0);
+        g.lineTo(i + 16 - S, S);
+        g.lineTo(i - S, S);
+        g.closePath();
+        g.fill();
+      }
+      break;
+    case "camo":
+      for (let i = 0; i < 26; i++) {
+        g.beginPath();
+        const x = rnd() * S, y = rnd() * S, r = 8 + rnd() * 16;
+        for (let k = 0; k < 7; k++) {
+          const a = (k / 7) * Math.PI * 2, rr = r * (0.6 + rnd() * 0.6);
+          k ? g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : g.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+        }
+        g.closePath();
+        g.globalAlpha = i % 2 ? 0.9 : 0.55;
+        g.fill();
+      }
+      g.globalAlpha = 1;
+      break;
+    case "hex": {
+      g.lineWidth = 2.5;
+      const r = 10, h = Math.sqrt(3) * r;
+      for (let row = -1; row < S / h + 1; row++)
+        for (let col = -1; col < S / (r * 1.5) + 1; col++) {
+          const cx = col * r * 1.5, cy = row * h + (col % 2 ? h / 2 : 0);
+          g.beginPath();
+          for (let k = 0; k < 6; k++) {
+            const a = (k / 6) * Math.PI * 2;
+            k ? g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r) : g.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+          }
+          g.closePath();
+          g.stroke();
+        }
+      break;
+    }
+    case "circuit":
+      g.lineWidth = 2;
+      for (let i = 0; i < 18; i++) {
+        let x = Math.round(rnd() * 8) * 16, y = Math.round(rnd() * 8) * 16;
+        g.beginPath();
+        g.moveTo(x, y);
+        for (let k = 0; k < 4; k++) {
+          rnd() > 0.5 ? (x += (rnd() > 0.5 ? 1 : -1) * 16) : (y += (rnd() > 0.5 ? 1 : -1) * 16);
+          g.lineTo(x, y);
+        }
+        g.stroke();
+        g.beginPath();
+        g.arc(x, y, 3, 0, Math.PI * 2);
+        g.fill();
+      }
+      break;
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }

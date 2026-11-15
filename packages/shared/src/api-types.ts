@@ -1,3 +1,4 @@
+import type { CharacterSkinMaterial, WeaponSkinMaterial } from "./cosmetics.js";
 /** Tipos de resposta da API compartilhados entre cliente e servidor. */
 export type UserRole = "PLAYER" | "MODERATOR" | "ADMIN" | "SUPERADMIN";
 
@@ -29,6 +30,11 @@ export interface MeResponse {
     rankOrder: number;
     placementMatchesLeft: number;
   } | null;
+  /** Cosméticos equipados (só aparência). Chave = código do operador / da arma. */
+  cosmetics: {
+    characters: Record<string, CharacterSkinMaterial>;
+    weapons: Record<string, WeaponSkinMaterial>;
+  };
 }
 
 export interface AuthResponse {
@@ -101,4 +107,83 @@ export interface RankedLeaderboardResponse {
   total: number;
   entries: RankedLeaderboardEntry[];
   me: { position: number; points: number; rankOrder: number } | null;
+}
+
+// ───────── Economia (Fase 6) ─────────
+
+export type StoreItemType = "WEAPON_SKIN" | "CHARACTER_SKIN" | "EMBLEM";
+
+export interface StoreItemView {
+  id: string;
+  code: string;
+  type: StoreItemType;
+  name: string;
+  description: string;
+  rarity: "COMMON" | "RARE" | "EPIC" | "LEGENDARY" | "SEASONAL";
+  /** null = não vendável (recompensa). */
+  priceVc: number | null;
+  owned: boolean;
+  equipped: boolean;
+  /** Arma ou operador ao qual a skin se aplica. */
+  target: { kind: "weapon" | "character"; code: string; name: string } | null;
+  /** Material visual (cores/padrão) interpretado pelo cliente; null para emblemas. */
+  material: Record<string, unknown> | null;
+  acquiredAt: string | null;
+  source: "PURCHASE" | "REWARD" | "SEASON_REWARD" | "EVENT" | "ADMIN_GRANT" | "DEFAULT" | null;
+}
+
+export interface StoreCatalogResponse {
+  balance: number;
+  items: StoreItemView[];
+}
+
+export interface StorePurchaseResponse {
+  balance: number;
+  item: StoreItemView;
+}
+
+export interface WalletTransactionView {
+  id: string;
+  type: "PURCHASE_CREDIT" | "REWARD_CREDIT" | "STORE_DEBIT" | "REFUND_DEBIT" | "CHARGEBACK_DEBIT" | "ADMIN_ADJUSTMENT";
+  amount: number;
+  balanceAfter: number;
+  description: string;
+  createdAt: string;
+}
+
+export interface WalletResponse {
+  balance: number;
+  transactions: WalletTransactionView[];
+  nextCursor: string | null;
+}
+
+export interface CoinPackageView {
+  id: string;
+  code: string;
+  coins: number;
+  bonusCoins: number;
+  priceCents: number;
+  currency: string;
+}
+
+export interface CoinPackagesResponse {
+  /** false quando o servidor não tem a Stripe configurada: a compra de VC fica indisponível (sem simulação). */
+  paymentsEnabled: boolean;
+  packages: CoinPackageView[];
+}
+
+export interface CheckoutResponse {
+  orderId: string;
+  /** Página de pagamento hospedada pela Stripe. O cartão é digitado lá, nunca no jogo. */
+  url: string;
+}
+
+export interface PaymentOrderView {
+  id: string;
+  status: "PENDING" | "PAID" | "FAILED" | "EXPIRED" | "REFUNDED" | "PARTIALLY_REFUNDED" | "DISPUTED";
+  coins: number;
+  priceCents: number;
+  currency: string;
+  createdAt: string;
+  paidAt: string | null;
 }

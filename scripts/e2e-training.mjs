@@ -56,13 +56,18 @@ try {
   // Desliga o drone para que o teste seja determinístico.
   await page.evaluate(() => window.__vantaTraining.setDroneEnabled(false));
 
+  // Segura W até andar 1,5 m (no máximo 8 s). Com o renderizador por software o quadro pode passar de 100 ms,
+  // e o jogo limita cada quadro a 0,1 s de simulação: o tempo real até 1,5 m varia com a máquina.
   const z0 = s.pos.z;
+  const x0 = s.pos.x;
+  const t0 = Date.now();
   await page.keyboard.down("KeyW");
-  await page.waitForTimeout(1200);
+  while (Date.now() - t0 < 8000 && (await st()).pos.z - z0 < 1.5) await page.waitForTimeout(150);
   await page.keyboard.up("KeyW");
   s = await st();
   assert(s.pos.z - z0 > 1.5, "W deveria mover o jogador para frente (+z na direção yaw π)", { z0, z: s.pos.z });
-  ok(`movimento: avançou ${(s.pos.z - z0).toFixed(2)} m em 1,2 s`);
+  assert(Math.abs(s.pos.x - x0) < 0.3, "W não deveria desviar para o lado", { x0, x: s.pos.x });
+  ok(`movimento: avançou ${(s.pos.z - z0).toFixed(2)} m para frente em ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 
   // Atira no alvo à frente até eliminá-lo (rajadas curtas re-mirando: o recuo desloca a mira).
   const deadline = Date.now() + 40000;

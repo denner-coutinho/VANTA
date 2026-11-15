@@ -4,6 +4,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import type { CharacterSkinMaterial } from "@vanta/shared";
 import { CharacterRig } from "./characters";
 
 export type GraphicsQuality = "low" | "medium" | "high" | "ultra";
@@ -16,11 +17,12 @@ const QUALITY: Record<GraphicsQuality, { pixelRatio: number; bloom: boolean; sha
 };
 
 /** Cena 3D do menu: operador em plataforma holográfica, com bloom, partículas e luz volumétrica. */
-export function MenuScene({ accent = "#287BFF", quality = "high", character = "RAVEN" }: { accent?: string; quality?: GraphicsQuality; character?: string }) {
+export function MenuScene({ accent = "#287BFF", quality = "high", character = "RAVEN", skin = null }: { accent?: string; quality?: GraphicsQuality; character?: string; skin?: CharacterSkinMaterial | null }) {
   const host = useRef<HTMLDivElement>(null);
   const accentRef = useRef<(hex: string) => void>(() => undefined);
   const characterRef = useRef<(code: string) => void>(() => undefined);
   const initialCharacter = useRef(character);
+  const skinRef = useRef<CharacterSkinMaterial | null>(skin);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -142,7 +144,8 @@ export function MenuScene({ accent = "#287BFF", quality = "high", character = "R
 
     // Operador selecionado: modelo procedural com animação real. Ao trocar, ele entra com uma
     // demonstração curta (recarga e disparos) e depois volta ao idle que acompanha o cursor.
-    let operator = new CharacterRig(initialCharacter.current, { accent, detail: q.shadows ? "high" : "low" });
+    let operator = new CharacterRig(initialCharacter.current, { accent, detail: q.shadows ? "high" : "low", skin: skinRef.current });
+    let operatorKey = `${initialCharacter.current}:${JSON.stringify(skinRef.current)}`;
     operator.root.rotation.y = Math.PI;
     scene.add(operator.root);
     let showcaseT = 0;
@@ -155,8 +158,10 @@ export function MenuScene({ accent = "#287BFF", quality = "high", character = "R
         pendingCode = code;
         return;
       }
-      if (code === operator.code) return;
-      const next = new CharacterRig(code, { detail: q.shadows ? "high" : "low" });
+      const key = `${code}:${JSON.stringify(skinRef.current)}`;
+      if (key === operatorKey) return;
+      operatorKey = key;
+      const next = new CharacterRig(code, { detail: q.shadows ? "high" : "low", skin: skinRef.current });
       next.root.rotation.y = Math.PI;
       next.root.traverse((o) => ((o as THREE.Mesh).isMesh ? ((o as THREE.Mesh).castShadow = true) : null));
       operator.dispose();
@@ -164,8 +169,10 @@ export function MenuScene({ accent = "#287BFF", quality = "high", character = "R
       scene.add(operator.root);
       showcaseT = 0;
       el.dataset.character = operator.code;
+      el.dataset.skin = skinRef.current?.glow ?? "";
     };
     el.dataset.character = operator.code;
+    el.dataset.skin = skinRef.current?.glow ?? "";
     accentRef.current = (hex) => {
       operator.setAccent(hex);
       ringMat.color.set(hex);
@@ -262,7 +269,10 @@ export function MenuScene({ accent = "#287BFF", quality = "high", character = "R
   }, [quality]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => accentRef.current(accent), [accent]);
-  useEffect(() => characterRef.current(character), [character]);
+  useEffect(() => {
+    skinRef.current = skin;
+    characterRef.current(character);
+  }, [character, skin]);
 
   return <div ref={host} className="menu-scene" data-ready={ready} aria-hidden />;
 }

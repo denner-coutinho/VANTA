@@ -122,3 +122,11 @@ navegador ──HTTP /api──▶ API Fastify (:4000) ──▶ PostgreSQL / Re
 - **Bloqueio por abandono** é derivado do banco (abandonos em ranqueadas nas últimas 24 h), não de estado em memória: reiniciar o servidor não limpa a punição.
 - **Temporadas** (`modules/ranked/season.service.ts`): encerrar grava o top 100 por modo em `leaderboardSnapshot`; iniciar a próxima cria as avaliações de quem já tinha patente com MMR puxado para a média e desvio maior.
 - **Para escalar**: a fila em memória vale para um processo. Com vários servidores de jogo, mover a fila para o Redis (lista ordenada por MMR) e manter um único casador.
+
+## Economia (Fase 6)
+
+- **Razão contábil** (`modules/economy/wallet.ts`, `postLedger`): único ponto que altera saldo. Cada lançamento tem chave de idempotência única (`store:<user>:<item>`, `stripe:order:<id>`, `stripe:refund:<id>:<valor>`, `season:<id>:<user>`, `admin:<requestId>`), grava `balanceAfter` e atualiza `Wallet.balance` com bloqueio otimista (`version`). Débitos da loja nunca deixam o saldo negativo; débitos externos (estorno, chargeback) zeram e registram o que faltou.
+- **Loja** (`store.service.ts`): o preço vem do banco; débito e `Inventory` são gravados na mesma transação. Duas compras simultâneas do mesmo item: uma vence, a outra recebe 409 (`ALREADY_OWNED`).
+- **Pagamentos** (`payments.ts`): `PaymentGateway` com a implementação `StripeGateway` (Checkout hospedado). O webhook roda num plugin com parser de corpo cru para conferir a assinatura; todo evento é gravado em `PaymentWebhookEvent` (id único) antes de ser aplicado, e o crédito do pedido usa chave própria, então reentregas não duplicam. O valor pago é conferido com o pedido.
+- **Cosméticos** (`packages/shared/src/cosmetics.ts`): definição das skins (cores e padrão), preços e recompensas. O cliente aplica as cores no `CharacterRig` e no `ViewModel`; os padrões são desenhados em canvas. O servidor de jogo carrega as skins equipadas ao entrar na fila e as envia em `MatchInfo.players[].cosmetics`.
+- **Recompensas de temporada**: aplicadas dentro da transação de `closeSeason`, com chave por jogador.

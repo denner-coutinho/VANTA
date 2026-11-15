@@ -17,6 +17,8 @@ import { LogMailer, SmtpMailer, type Mailer } from "./modules/mail/mailer.js";
 import { meRoutes } from "./modules/users/me.routes.js";
 import { contentRoutes } from "./modules/content/content.routes.js";
 import { rankedRoutes } from "./modules/ranked/ranked.routes.js";
+import { economyRoutes } from "./modules/economy/economy.routes.js";
+import { StripeGateway, type PaymentGateway } from "./modules/economy/payments.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
 
 declare module "fastify" {
@@ -32,6 +34,8 @@ export interface AppDeps {
   prisma?: PrismaClient;
   redis?: Redis;
   mailer?: Mailer;
+  /** Gateway de pagamento (testes injetam um com cliente Stripe falso). null = pagamentos desativados. */
+  payments?: PaymentGateway | null;
   logger?: boolean | object;
 }
 
@@ -100,6 +104,9 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   await app.register(meRoutes);
   await app.register(contentRoutes);
   await app.register(rankedRoutes);
+  const payments = deps.payments !== undefined ? deps.payments : config.STRIPE_SECRET_KEY ? new StripeGateway(config.STRIPE_SECRET_KEY, config.STRIPE_WEBHOOK_SECRET) : null;
+  if (!payments) app.log.warn("Stripe não configurada: compra de VANTA COINS desativada.");
+  await app.register(economyRoutes, { payments });
 
   return app;
 }

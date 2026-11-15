@@ -217,6 +217,7 @@ export class OnlineRuntime {
     const mine = info.players.find((p) => p.id === info.you)!;
     this.loadout = mine.loadout.map((c) => weapons.get(c)!).filter(Boolean);
     this.vm = new ViewModel(TEAM_COLORS[info.yourTeam]);
+    this.vm.setSkins(mine.cosmetics?.weapons ?? {});
     this.vm.prepare(this.loadout);
     this.vm.equip(this.loadout[0]!.code);
 
@@ -230,7 +231,7 @@ export class OnlineRuntime {
     for (const p of info.players) {
       if (p.id === info.you) continue;
       const ally = p.team === info.yourTeam;
-      const avatar = new CharacterRig(p.character, { accent: p.color, team: TEAM_COLORS[p.team], name: ally ? p.username : null, detail: "low" });
+      const avatar = new CharacterRig(p.character, { accent: p.color, team: TEAM_COLORS[p.team], name: ally ? p.username : null, detail: "low", skin: p.cosmetics?.character ?? null });
       this.scene.add(avatar.root);
       this.remotes.set(p.id, { info: p, avatar, pos: new THREE.Vector3(0, -100, 0), alive: true, hp: 100, connected: p.connected });
     }
@@ -696,6 +697,11 @@ export class OnlineRuntime {
 
   debugState() {
     return {
+      /** Cosméticos aplicados: skins nas suas armas e skins de operador dos outros jogadores. */
+      cosmetics: {
+        myWeapons: Object.keys(this.info.players.find((p) => p.id === this.info.you)?.cosmetics?.weapons ?? {}),
+        remotes: Object.fromEntries([...this.remotes.values()].map((r) => [r.info.username, r.info.cosmetics?.character?.glow ?? null])),
+      },
       map: this.info.map,
       team: this.info.yourTeam,
       pos: { ...this.me.move.pos },

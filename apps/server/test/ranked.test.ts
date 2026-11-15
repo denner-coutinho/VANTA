@@ -25,7 +25,8 @@ beforeEach(async () => {
   for (const m of gs.matches.values()) for (const p of m.players) m.forfeit(p.userId);
   await Promise.allSettled([...gs.pendingSaves]);
   gs.matches.clear();
-  await ctx.prisma.$executeRawUnsafe(`TRUNCATE "Match","RankHistory","RankedSeason" CASCADE`);
+  await ctx.prisma.$executeRawUnsafe(`TRUNCATE "Match","RankHistory" CASCADE`);
+  await ctx.prisma.$executeRawUnsafe(`DELETE FROM "RankedSeason"`); // DELETE (não TRUNCATE CASCADE): preserva os itens da loja ligados a temporadas
   await resetState(ctx);
   const now = Date.now();
   await ctx.prisma.rankedSeason.create({ data: { number: 1, name: "Temporada de teste", startsAt: new Date(now - 1000), endsAt: new Date(now + 30 * 86400_000), isActive: true } });
