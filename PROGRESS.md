@@ -291,8 +291,29 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **Sem chat de clã, guerra de clãs ou temporada de clãs.** Os pontos de clã não reiniciam por temporada.
 - **Convite de clã não chega em tempo real**: aparece ao abrir a tela de clã (o convite de grupo e de sala é que chegam na hora).
 
-### Partes 4 e 5 ⏳
-Replays, kill cam e apresentação do MVP · painel administrativo e teclas remapeáveis.
+### Parte 4 — Replays, kill cam e apresentação do MVP ✅ (17/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **Gravação da partida no servidor**: a partida autoritativa grava quadros a 15 por segundo (posição, mira, vida, time de todos, mais abates, tiros e fim de round), sem o aquecimento. O replay é compactado (gzip), guardado no banco com hash SHA-256 (também em `Match.replayHash`), limite de 8 MB, e apagado depois de 30 dias (limpeza ao subir e a cada 6 h) | ✅ | `test/match.test.ts` (replay a ~15 Hz, 5 abates, 5 fins de round) + `test/replay.test.ts` |
+| **Download do replay** só para quem jogou a partida (`GET /matches/:id/replay`), com o hash no cabeçalho. Quem não jogou recebe 404; sem login, 401 | ✅ | `test/replay.test.ts` + E2E (o perdedor também baixa) |
+| **Tela de replay** (`/replay/:id`): play, pausa, velocidade 0,5× a 4×, linha do tempo com marcas de cada round, seguir qualquer jogador ou câmera livre, placar e killfeed na hora certa | ✅ | E2E + captura 60 |
+| **Kill cam**: quem morre recebe do servidor só os últimos 4 s do abatedor e da vítima, até o momento do abate. Depois de 0,9 s de queda, a câmera mostra o abatedor por cima do ombro (com colisão contra o mapa), nome, arma e headshot. Espaço pula; acaba quando o próximo round começa | ✅ | `test/match.test.ts` (só a vítima recebe, só os dois jogadores, nada depois do abate) + E2E com abate real + captura 58 |
+| **Apresentação do MVP** no fim da partida: personagem animado (o mesmo rig da partida, com a skin equipada) | ✅ | E2E + captura 59 |
+| **Acesso**: botão "Ver replay" no resultado (fila e sala) e link de replay no seu próprio perfil | ✅ | E2E |
+
+**Testes:** 133 no servidor (4 novos), 94 no shared, 11 no cliente + **E2E de replay e kill cam com dois navegadores** (`scripts/e2e-replay.mjs`, 15 etapas: partida 1v1 real com abate, kill cam na vítima, MVP, replay baixado e tocado com pausa, linha do tempo e 2×, download pelo outro jogador e link no perfil).
+
+#### Limites honestos da parte 4
+- **O replay é a 15 quadros por segundo** (metade do que o jogador vê ao vivo); entre quadros a posição é interpolada. Não regrava a física: mostra o que o servidor decidiu.
+- **Só quem jogou pode baixar.** Não existe compartilhamento público de replay, e quem assistiu como espectador de sala também não baixa.
+- **A kill cam revela onde o abatedor estava até o abate**, nunca depois; mesmo assim, é uma informação a mais para quem morreu (é o comportamento comum em jogos do gênero).
+- **Replays somem depois de 30 dias** e ocupam o banco (no teste, cerca de 9 KB compactado e 270 KB descompactado por minuto de 1v1; 3v3 com todos se mexendo ocupa bem mais). Em produção, o ideal é guardar num armazenamento de objetos (S3 ou parecido) — fica para a Fase 8.
+- **A apresentação do MVP abre um segundo contexto WebGL** em cima da partida; em máquinas fracas pode pesar um pouco no fim da partida.
+- **O E2E testa uma partida 1v1.** Em 2v2/3v3 a gravação é a mesma e está coberta pelo teste do servidor.
+
+### Parte 5 ⏳
+Painel administrativo (níveis de permissão e registro de auditoria) e teclas remapeáveis.
 
 ## Fase 8 ⏳
 Finalização (carga, segurança, Docker, CI, deploy).

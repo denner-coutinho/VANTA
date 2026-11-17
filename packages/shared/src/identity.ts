@@ -136,6 +136,8 @@ export interface PublicMatchView {
   mvp: boolean;
   medals: string[];
   endedAt: string | null;
+  /** Só no próprio perfil: a partida tem replay guardado. */
+  hasReplay?: boolean;
 }
 
 export interface PublicProfileResponse {

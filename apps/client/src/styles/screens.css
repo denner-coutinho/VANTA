@@ -532,3 +532,31 @@ textarea.input { height: auto; padding: 10px 12px; resize: vertical; }
 .clan-box { padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
 .clan-head { padding: 18px 22px; }
 .card-pick { padding: 18px 20px; }
+
+/* ───────── Replay, kill cam e MVP (Fase 7, parte 4) ───────── */
+.replay-bar { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); width: min(900px, calc(100% - 560px)); min-width: 520px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: rgba(9, 11, 18, .82); --cut: 10px; }
+.replay-play { width: 40px; font-size: 14px; }
+.replay-time { font-family: var(--f-display); min-width: 92px; color: var(--c-dim); }
+.replay-track { position: relative; flex: 1; height: 34px; display: flex; align-items: center; }
+.replay-track input[type="range"] { width: 100%; accent-color: var(--c-blue); }
+.replay-mark { position: absolute; top: -10px; transform: translateX(-50%); background: rgba(40, 123, 255, .25); color: var(--c-white); border: 0; font: 600 10px var(--f-display); padding: 1px 5px; cursor: pointer; }
+.replay-mark:hover { background: var(--c-blue); }
+.replay-speeds { display: flex; gap: 4px; }
+.replay-help { bottom: 8px; }
+.killcam { position: absolute; inset: 0; pointer-events: none; }
+.killcam-frame { position: absolute; inset: 0; box-shadow: inset 0 0 0 3px rgba(255, 59, 107, .55), inset 0 0 120px rgba(255, 59, 107, .18); }
+.killcam-label { position: absolute; top: 110px; left: 50%; transform: translateX(-50%); text-align: center; background: rgba(9, 11, 18, .78); padding: 10px 20px; min-width: 300px; }
+.killcam-label strong { font: 700 20px var(--f-display); letter-spacing: .08em; }
+.killcam-bar { height: 3px; background: rgba(255, 255, 255, .1); margin-top: 8px; }
+.killcam-bar i { display: block; height: 100%; background: #FF3B6B; }
+.killcam-skip { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); pointer-events: auto; }
+.mvp-show { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: center; padding: 14px 18px; margin: 12px 0; background: linear-gradient(110deg, rgba(255, 176, 32, .12), rgba(155, 92, 255, .08)); border-left: 3px solid var(--c-amber); animation: mvp-in .7s cubic-bezier(.2, .9, .3, 1.2) both; }
+.mvp-stage { width: 220px; height: 220px; position: relative; }
+.mvp-stage canvas { width: 100% !important; height: 100% !important; }
+.mvp-title { font: 700 13px var(--f-display); letter-spacing: .3em; color: var(--c-amber); }
+.mvp-name { font: 700 30px var(--f-display); letter-spacing: .04em; margin: 2px 0 8px; }
+.mvp-stats { display: flex; gap: 18px; flex-wrap: wrap; }
+.mvp-stats div { display: flex; flex-direction: column; }
+.mvp-stats b { font: 700 22px var(--f-display); }
+.mvp-stats span { font-size: 11px; color: var(--c-dim); text-transform: uppercase; letter-spacing: .1em; }
+@keyframes mvp-in { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }

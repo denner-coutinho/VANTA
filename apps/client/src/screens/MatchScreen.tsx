@@ -13,6 +13,7 @@ import { uiSound } from "../audio/ui-sound";
 import { MatchChat } from "../social/MatchChat";
 import { ReportDialog } from "../social/ReportDialog";
 import { useSocial } from "../social/SocialContext";
+import { MvpStage } from "../three/MvpStage";
 
 const CATEGORY_LABEL: Record<WeaponStats["category"], string> = { ASSAULT_RIFLE: "Rifle de assalto", SMG: "Submetralhadora", SNIPER: "Sniper", SHOTGUN: "Escopeta", PISTOL: "Pistola" };
 const toGame = (s: LocalSettings): GameSettings => ({ sensitivity: s.sensitivity, fov: s.fov, maxFps: s.maxFps, volume: s.masterVolume, quality: s.quality });
@@ -199,6 +200,17 @@ export function MatchScreen() {
     navigate(gameSocket.room ? "/sala" : "/menu", { replace: true });
   };
 
+  // Espaço pula a kill cam.
+  const killcamOn = !!hud?.killcam;
+  useEffect(() => {
+    if (!killcamOn) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Space") rt.current?.skipKillcam();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [killcamOn]);
+
   const exit = (to: string) => {
     gameSocket.match = null;
     navigate(to, { replace: true });
@@ -298,7 +310,18 @@ export function MatchScreen() {
               <span>{banner.sub}</span>
             </div>
           )}
-          {!hud.alive && !result && hud.phase !== "round_end" && (
+          {hud.killcam && !result && (
+            <div className="killcam" data-testid="killcam">
+              <div className="killcam-frame" />
+              <div className="killcam-label">
+                <span className="label" style={{ color: "#FF8A96" }}>Kill cam</span>
+                <div><strong>{hud.killcam.killer}</strong> <span className="muted">· {hud.killcam.weapon}{hud.killcam.head ? " · headshot" : ""}</span></div>
+                <div className="killcam-bar"><i style={{ width: `${Math.round(hud.killcam.progress * 100)}%` }} /></div>
+              </div>
+              <div className="killcam-skip muted small">Espaço para pular</div>
+            </div>
+          )}
+          {!hud.alive && !result && !hud.killcam && hud.phase !== "round_end" && (
             <div className="death">
               <div className="label" style={{ color: "var(--c-red)" }}>Eliminado{deathBy ? ` por ${deathBy}` : ""}</div>
               <span className="muted">Aguarde o próximo round</span>
@@ -351,15 +374,20 @@ export function MatchScreen() {
                   </tbody>
                 </table>
               ))}
+              {result && <MvpShowcase stats={result.stats} info={info} />}
               {result && !info.rules && (
                 progress && progress.matchId === info.matchId ? <ProgressCard p={progress} /> : <div className="progress-card pending muted small" data-testid="progress-pending">Calculando XP e medalhas…</div>
               )}
               {result && (
                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                   {info.rules ? (
-                    <Button onClick={() => exit("/sala")} data-testid="back-to-room">Voltar à sala</Button>
+                    <>
+                      <Button variant="ghost" onClick={() => exit(`/replay/${info.matchId}`)} data-testid="watch-replay">Ver replay</Button>
+                      <Button onClick={() => exit("/sala")} data-testid="back-to-room">Voltar à sala</Button>
+                    </>
                   ) : (
                     <>
+                      <Button variant="ghost" onClick={() => exit(`/replay/${info.matchId}`)} data-testid="watch-replay">Ver replay</Button>
                       <Button variant="ghost" onClick={() => exit("/menu")}>Menu</Button>
                       <Button onClick={() => exit("/jogar")} data-testid="play-again">Jogar de novo</Button>
                     </>
@@ -443,6 +471,30 @@ function RankedResultCard({ r }: { r: RankedResultWire }) {
 }
 
 /** XP, nível, medalhas, missões e conquistas da partida (calculados e gravados pelo servidor). */
+/** Apresentação do MVP: operador animado com a skin da partida e os números que fizeram dele o MVP. */
+function MvpShowcase({ stats, info }: { stats: PlayerMatchStats[]; info: MatchInfo }) {
+  const mvp = stats.find((s) => s.mvp);
+  if (!mvp) return null;
+  const pl = info.players.find((p) => p.id === mvp.id);
+  const acc = mvp.shots ? Math.round(((mvp.hits ?? 0) / mvp.shots) * 100) : 0;
+  return (
+    <div className="mvp-show" data-testid="mvp-show">
+      {pl ? <MvpStage character={pl.character} skin={pl.cosmetics?.character ?? null} accent={TEAM_COLORS[mvp.team]} /> : <div />}
+      <div>
+        <span className="mvp-title">MVP DA PARTIDA</span>
+        <div className="mvp-name" style={{ color: TEAM_COLORS[mvp.team] }} data-testid="mvp-name">{mvp.username}{mvp.id === info.you ? " (você)" : ""}</div>
+        <div className="mvp-stats">
+          <div><b>{mvp.kills}</b><span>abates</span></div>
+          <div><b>{mvp.assists}</b><span>assistências</span></div>
+          <div><b>{mvp.damage}</b><span>dano</span></div>
+          <div><b>{mvp.headshots}</b><span>headshots</span></div>
+          <div><b>{acc}%</b><span>precisão</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProgressCard({ p }: { p: MatchProgressWire }) {
   const up = p.levelAfter > p.levelBefore;
   return (

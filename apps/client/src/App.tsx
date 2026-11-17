@@ -19,6 +19,7 @@ import { ProgressScreen } from "./screens/ProgressScreen";
 import { ClanScreen } from "./screens/ClanScreen";
 import { RankingScreen } from "./screens/RankingScreen";
 import { PlayerProfileScreen } from "./screens/PlayerProfileScreen";
+import { ReplayScreen } from "./screens/ReplayScreen";
 import { InviteStack } from "./social/PartyWidget";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -58,6 +59,7 @@ export function App() {
       <Route path="/cla/:tag" element={<RequireAuth><ClanScreen /></RequireAuth>} />
       <Route path="/ranking" element={<RequireAuth><RankingScreen /></RequireAuth>} />
       <Route path="/jogador/:username" element={<RequireAuth><PlayerProfileScreen /></RequireAuth>} />
+      <Route path="/replay/:matchId" element={<RequireAuth><ReplayScreen /></RequireAuth>} />
       <Route path="/assistir" element={<RequireAuth><SpectateScreen /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

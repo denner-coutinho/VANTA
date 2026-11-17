@@ -35,6 +35,8 @@ import {
   type WeaponStats,
   type WireCommand,
   type WireOther,
+  type WireSpec,
+  type KillcamWire,
   ANIM_FLAG,
 } from "@vanta/shared";
 import { InputManager } from "./input";
@@ -46,6 +48,9 @@ import { CharacterRig } from "../three/characters";
 import type { GameSettings, Quality } from "./GameRuntime";
 
 export const TEAM_COLORS = ["#287BFF", "#FF2E63"] as const;
+/** A kill cam começa depois da queda (s) e segura o quadro final um pouco (ms). */
+const KILLCAM_START = 0.9;
+const KILLCAM_HOLD_MS = 700;
 
 export interface OnlinePlayerRow {
   id: string;
@@ -81,6 +86,8 @@ export interface OnlineHud {
   connected: boolean;
   /** Pessoas assistindo (só salas; elas veem com atraso). */
   spectators: number;
+  /** Kill cam em exibição (os últimos segundos de quem te eliminou). */
+  killcam: { killer: string; weapon: string; head: boolean; progress: number } | null;
 }
 
 export type OnlineEvent =
@@ -149,6 +156,10 @@ export class OnlineRuntime {
   private prevPos: Vec3;
   private visualOffset = new THREE.Vector3();
   private deathT = 0;
+  /** Kill cam: quadros vindos do servidor (só abatedor e vítima, até o abate) tocados depois da queda. */
+  /** `at`: quando chegou (relógio real: a kill cam não fica lenta quando o FPS cai). */
+  private killcam: { w: KillcamWire; at: number; done: boolean } | null = null;
+  private selfRig: CharacterRig | null = null;
 
   private remotes = new Map<string, Remote>();
   private snaps: SnapOthers[] = [];
@@ -287,8 +298,86 @@ export class OnlineRuntime {
   // ───────────── Rede ─────────────
 
   handleMessage(msg: ServerMessage) {
+    if (msg.t === "killcam") {
+      if (msg.victim === this.info.you && msg.frames.length > 1) this.killcam = { w: msg, at: performance.now(), done: false };
+      return;
+    }
     if (msg.t !== "snap") return;
     this.onSnapshot(msg);
+  }
+
+  /** Pula a kill cam (volta para a câmera normal de eliminado). */
+  skipKillcam() {
+    if (this.killcam) this.killcam.done = true;
+  }
+
+  private get killcamActive() {
+    // Toca depois da queda e continua no fim do round e no congelamento seguinte (ninguém se mexe);
+    // para quando o round seguinte começa de verdade.
+    const kc = this.killcam;
+    return !!kc && !kc.done && performance.now() - kc.at > KILLCAM_START * 1000 && (!this.me.alive || this.phase === "round_end" || this.phase === "freeze");
+  }
+
+  /** Posição interpolada de um jogador nos quadros da kill cam, no instante `tick`. */
+  private killcamPose(id: string, tick: number): { x: number; y: number; z: number; yaw: number; pitch: number; crouch: number; alive: boolean; flags: number } | null {
+    const fr = this.killcam!.w.frames;
+    let i = fr.length - 1;
+    while (i > 0 && fr[i]!.tick > tick) i--;
+    const a = fr[i]!.players.find((p) => p[0] === id);
+    const bf = fr[Math.min(fr.length - 1, i + 1)]!;
+    const b = bf.players.find((p) => p[0] === id) ?? a;
+    if (!a || !b) return null;
+    const span = bf.tick - fr[i]!.tick;
+    const k = span > 0 ? clamp((tick - fr[i]!.tick) / span, 0, 1) : 0;
+    const L = (n: 1 | 2 | 3 | 5 | 6) => (a[n] as number) + ((b[n] as number) - (a[n] as number)) * k;
+    const dyaw = Math.atan2(Math.sin(b[4] - a[4]), Math.cos(b[4] - a[4]));
+    const cur: WireSpec = k < 0.5 ? a : b;
+    return { x: L(1), y: L(2), z: L(3), yaw: a[4] + dyaw * k, pitch: L(5), crouch: L(6), alive: cur[7] === 1, flags: cur[10] };
+  }
+
+  /** Toca a kill cam: o abatedor e você nos últimos segundos, câmera atrás do ombro de quem atirou. */
+  private renderKillcam(dt: number): boolean {
+    if (!this.killcamActive) {
+      if (this.selfRig) this.selfRig.root.visible = false;
+      return false;
+    }
+    const kc = this.killcam!;
+    const fr = kc.w.frames;
+    const start = fr[0]!.tick;
+    const end = fr[fr.length - 1]!.tick;
+    const elapsed = performance.now() - kc.at - KILLCAM_START * 1000;
+    const tick = Math.min(end, start + elapsed / TICK_MS);
+    if (elapsed > (end - start) * TICK_MS + KILLCAM_HOLD_MS) {
+      kc.done = true;
+      return false;
+    }
+    if (!this.selfRig) {
+      const me = this.info.players.find((p) => p.id === this.info.you)!;
+      this.selfRig = new CharacterRig(me.character, { accent: me.color, team: TEAM_COLORS[me.team], name: null, detail: "low", skin: me.cosmetics?.character ?? null });
+      this.scene.add(this.selfRig.root);
+    }
+    const drive = (rig: CharacterRig, id: string) => {
+      const q = this.killcamPose(id, tick);
+      if (!q) return null;
+      rig.root.visible = true;
+      rig.updateAt(dt, new THREE.Vector3(q.x, q.y, q.z), q.yaw, { pitch: q.pitch, crouch: q.crouch, alive: q.alive, onGround: (q.flags & ANIM_FLAG.onGround) !== 0, sprinting: (q.flags & ANIM_FLAG.sprinting) !== 0, reloading: (q.flags & ANIM_FLAG.reloading) !== 0 });
+      return q;
+    };
+    drive(this.selfRig, this.info.you);
+    const killerRemote = this.remotes.get(kc.w.killer);
+    const k = killerRemote ? drive(killerRemote.avatar, kc.w.killer) : null;
+    if (k) {
+      const eye = { x: k.x, y: k.y + 1.55, z: k.z };
+      const fwd = viewDir(k.yaw, k.pitch * 0.6);
+      const dir = { x: -fwd.x, y: -fwd.y + 0.3, z: -fwd.z };
+      const len = Math.hypot(dir.x, dir.y, dir.z);
+      const d = { x: dir.x / len, y: dir.y / len, z: dir.z / len };
+      const hit = raycastWorld(this.world, eye, d, 2.6);
+      const dist = hit ? Math.max(0.4, hit.t - 0.2) : 2.6;
+      this.camera.position.set(eye.x + d.x * dist, eye.y + d.y * dist, eye.z + d.z * dist);
+      this.camera.lookAt(eye.x + fwd.x * 8, eye.y + fwd.y * 8, eye.z + fwd.z * 8);
+    }
+    return true;
   }
 
   private estServerTick(now = performance.now()) {
@@ -589,7 +678,9 @@ export class OnlineRuntime {
     if (!a) a = this.snaps[0];
     if (!a) return;
     const t = b ? clamp((rt - a.tick) / (b.tick - a.tick), 0, 1) : 0;
+    const kcKiller = this.killcamActive ? this.killcam!.w.killer : null;
     for (const [id, r] of this.remotes) {
+      if (id === kcKiller) continue;
       const oa = a.byId.get(id);
       if (!oa) continue;
       const ob = b?.byId.get(id) ?? oa;
@@ -645,6 +736,13 @@ export class OnlineRuntime {
     const f = viewDir(this.yaw, this.pitch);
     this.audio.setListener(x, eyeY, z, f.x, f.y, f.z);
     this.interpolateOthers(dt);
+    if (this.killcam) {
+      if (this.me.alive && this.phase === "live") {
+        this.killcam = null;
+        if (this.selfRig) this.selfRig.root.visible = false;
+      }
+    }
+    this.renderKillcam(dt);
     this.fx.update(dt);
     this.map.update(dt);
 
@@ -654,7 +752,7 @@ export class OnlineRuntime {
     const switchMs = CATEGORY_TUNING[stats.category].switchMs;
     const switchP = now < ws.switchEndsAt ? 1 - (ws.switchEndsAt - now) / switchMs : null;
     const scoped = aiming && stats.category === "SNIPER" && this.camera.fov < targetFov * 1.15;
-    this.vm.update(dt, { speed, onGround: p.onGround, aiming, sprinting: p.sprinting, reloadP, switchP, mouse: this.mouseFrame, category: stats.category, hideForScope: scoped || !this.me.alive });
+    this.vm.update(dt, { speed, onGround: p.onGround, aiming, sprinting: p.sprinting, reloadP, switchP, mouse: this.mouseFrame, category: stats.category, hideForScope: scoped || !this.me.alive || this.killcamActive });
 
     this.renderer.clear();
     this.composer.render();
@@ -692,6 +790,13 @@ export class OnlineRuntime {
         rtt: Math.round(this.rtt),
         connected: this.connected,
         spectators: s?.spec ?? 0,
+        killcam: this.killcamActive
+          ? (() => {
+              const fr = this.killcam!.w.frames;
+              const dur = (fr[fr.length - 1]!.tick - fr[0]!.tick) * TICK_MS + KILLCAM_HOLD_MS;
+              return { killer: this.name(this.killcam!.w.killer), weapon: this.killcam!.w.weapon, head: this.killcam!.w.head, progress: clamp((performance.now() - this.killcam!.at - KILLCAM_START * 1000) / dur, 0, 1) };
+            })()
+          : null,
       });
     }
   }
@@ -700,6 +805,7 @@ export class OnlineRuntime {
 
   debugState() {
     return {
+      killcam: this.killcam ? { killer: this.killcam.w.killer, frames: this.killcam.w.frames.length, players: [...new Set(this.killcam.w.frames.flatMap((f) => f.players.map((p) => p[0])))], active: this.killcamActive, done: this.killcam.done } : null,
       /** Cosméticos aplicados: skins nas suas armas e skins de operador dos outros jogadores. */
       cosmetics: {
         myWeapons: Object.keys(this.info.players.find((p) => p.id === this.info.you)?.cosmetics?.weapons ?? {}),
@@ -744,6 +850,7 @@ export class OnlineRuntime {
     this.vm.dispose();
     this.fx.dispose();
     for (const r of this.remotes.values()) r.avatar.dispose();
+    this.selfRig?.dispose();
     this.map.dispose();
     this.composer.dispose();
     this.renderer.dispose();
