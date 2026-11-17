@@ -366,11 +366,11 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 |---|---|---|
 | **Métricas Prometheus** (`GET /metrics`) na API e no servidor de jogo: tick, atrasos do loop, conexões, partidas, filas, tráfego, recusas, latência por rota, CPU, memória e event loop | ✅ | `test/metrics.test.ts` |
 | Métricas **protegidas**: desligadas sem `METRICS_TOKEN`, exigem o token (comparação em tempo constante), produção recusa token fraco, nginx bloqueia `/api/metrics`, rotas pelo nome declarado (nunca o nome do jogador) | ✅ | idem |
-| **Teste de carga do jogo** (`pnpm load-test`): conexões WebSocket de teste com contas `carga_*`, fila casual, comandos no ritmo do cliente real, ping, medição no cliente e no `/metrics`; só roda em banco de carga | ✅ | Rodado com 12, 120, 300 e 600 jogadores |
+| **Teste de carga do jogo** (`pnpm load-test`): conexões WebSocket de teste com contas `carga_*`, fila casual, comandos no ritmo do cliente real, ping, medição no cliente e no `/metrics`; só roda em banco de carga | ✅ | Rodado com 12, 120, 300 e 600 jogadores, e dois testes longos (18 e 22 min) |
 | **Teste de carga da API** (`pnpm load-api`) e custo do Argon2 | ✅ | 715 req/s com 50 conexões; 42 logins/s por núcleo |
 | **Correção — memória dos replays**: os quadros ficavam como objetos até o fim da partida (~40 MB por partida 3v3 de 20 min) e o gzip final travava o loop de todas as partidas. Agora o replay é compactado em streaming durante a partida | ✅ | Heap com 600 jogadores: 598 → 82 MB; `test/replay-recorder.test.ts` |
 | **Correção — colisão**: a grade montava texto e um `Set` novo em cada consulta | ✅ | Teste contra força bruta nos 5 mapas |
-| **Correção — partida sem fim**: round que acaba no tempo com os times iguais (vivos e vida) empata; se todos empatassem, a partida nunca terminava (o teste longo pegou 20 partidas paradas por 18 minutos). Agora há limite de rounds (2 × rounds para vencer): no limite vence quem tem mais rounds, ou a partida empata | ✅ | `test/match.test.ts` |
+| **Correção — partida sem fim**: round que acaba no tempo com os times iguais (vivos e vida) empata; se todos empatassem, a partida nunca terminava (o teste longo pegou 20 partidas paradas por 18 minutos). Agora há limite de rounds (2 × rounds para vencer): no limite vence quem tem mais rounds, ou a partida empata | ✅ | `test/match.test.ts`; teste de 22 min: 60 partidas terminaram juntas e foram gravadas com replay sem travar o loop |
 | `RATE_LIMIT_PER_MIN` configurável (padrão 300 por IP) | ✅ | Usado no teste da API |
 | Guia (`docs/LOAD_TEST.md`): como rodar, resultados, alertas sugeridos | ✅ | — |
 

@@ -76,10 +76,12 @@ portanto, pessimistas para CPU e otimistas para rede.
 | Jogadores | Partidas | Tick médio | Tick p99 | Ticks atrasados | CPU (1 núcleo = 100%) | Memória (RSS / heap) | Ping p99 no cliente | Saída |
 |---|---|---|---|---|---|---|---|---|
 | 12 | 2 | 0,33 ms | ≤ 1 ms | 0 | 5% | 141 / 25 MB | 0,6 ms | 3,8 Mbit/s |
-| 120 | 20 | 2,2 ms | ≤ 8 ms | 0 | 23% | 193 / 78 MB | 11 ms | 37 Mbit/s |
-| 300 | 49 | 4,9 ms | ≤ 16,7 ms | 0 | 49% | 406 / 255 MB | 13 ms | 92 Mbit/s |
-| 600 (antes das correções) | 100 | 11,6 ms | ≤ 33 ms | 1.337 + 1 travada | 105% | 1.348 / 598 MB | 100 ms | 189 Mbit/s |
-| **600 (depois)** | 100 | **8,9 ms** | ≤ 33 ms | **124**, nenhuma travada | **88%** | **390 / 82 MB** | **42 ms** | 187 Mbit/s |
+| 120 | 20 | 1,8 ms | ≤ 4 ms | 0 | 19% | 158 / 38 MB | 4 ms | 37 Mbit/s |
+| 300 | 50 | 4,3 ms | ≤ 16,7 ms | 0 | 43% | 226 / 50 MB | 10 ms | 94 Mbit/s |
+| 600 | 100 | 8,9 ms | ≤ 33 ms | 124 | 88% | 390 / 82 MB | 42 ms | 187 Mbit/s |
+
+Antes das correções abaixo, os mesmos testes deram: 300 jogadores com heap de 255 MB; 600 jogadores com tick médio de
+11,6 ms, 1.337 ticks atrasados e uma travada, 1.348 MB de memória (598 MB de heap) e ping p99 de 100 ms.
 
 Os percentis do tick vêm dos baldes do histograma (limite superior do balde). Cada jogador recebe ~38 KB/s
 (snapshots a 30 Hz numa partida 3v3).
@@ -104,7 +106,15 @@ processos de jogo: é o trabalho da próxima parte (estado compartilhado no Redi
 
 ### Teste longo (estabilidade)
 
-TESTE_LONGO
+Dois testes de 18 a 22 minutos com 120 jogadores:
+
+- **3v3, 18 minutos:** estável (tick médio 1,7 ms, 2 ticks atrasados no total, heap de 43 MB no fim). Mas **nenhuma
+  partida terminou**: os clientes de carga quase não se acertam, todo round acabava no tempo empatado e a partida
+  seguia para sempre. Isso também aconteceria com jogadores reais que não se enfrentam. **Corrigido:** a partida
+  tem limite de 2 × (rounds para vencer); no limite vence quem tem mais rounds, ou empata.
+- **1v1, 22 minutos, depois da correção:** as 60 partidas chegaram ao limite quase ao mesmo tempo (~18 min), foram
+  gravadas com replay (60 de 60; média de 0,7 MB, maior 1,4 MB) e os 120 clientes voltaram à fila e começaram
+  60 partidas novas, sem nenhuma travada do loop durante as gravações (1 tick atrasado em 22 minutos).
 
 ### API (um processo)
 
