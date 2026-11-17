@@ -167,3 +167,12 @@ navegador ──HTTP /api──▶ API Fastify (:4000) ──▶ PostgreSQL / Re
 - **Perfil público e cartão** (`modules/players`): `GET /players/:nome` monta o cartão (perfil + clã + melhor patente da temporada ativa) e as estatísticas; esconde contas banidas/apagadas e quem bloqueou o visitante. `PUT /profile/card` confere o nível do cartão.
 - **Rankings**: `GET /ranked/leaderboard?seasonId=` (qualquer temporada; os ratings de temporadas fechadas ficam no banco), `GET /rankings/level` e `GET /rankings/clans`, todos até 100.
 
+## Replays, kill cam e MVP (Fase 7, parte 4)
+
+- **Gravação** dentro da `Match` (`record()`), a partir do mesmo quadro do espectador (`WireSpec` de todos + eventos públicos), um a cada 2 snapshots (15 Hz, `REPLAY_EVERY_SNAPSHOTS`). O aquecimento não entra; quadros do mesmo tick se juntam. O `MatchResult` leva o `ReplayFile` (versão, modo, mapa, regras, jogadores, quadros).
+- **Armazenamento** (`modules/matches/replay.ts`): depois da transação que grava a partida, `saveReplay` compacta com gzip, calcula o SHA-256, grava em `MatchReplay` (1:1 com `Match`, apaga em cascata) e copia o hash para `Match.replayHash`. Acima de 8 MB não grava. `pruneReplays` apaga os de mais de 30 dias e roda no processo de jogo ao subir e a cada 6 h.
+- **Download**: `GET /matches/:id/replay` (20 por minuto) confere se quem pede jogou a partida e devolve os bytes compactados com `x-replay-sha256`. O navegador descompacta com `DecompressionStream`.
+- **Tocador**: `SpectatorRuntime` ganhou o modo replay (`loadReplay`, `setPlaying`, `setSpeed`, `seek`). Acha o quadro por busca binária, interpola entre quadros e dispara os eventos (killfeed, sons) dos quadros que passaram. Ao pular na linha do tempo, o estado (vida, placar, vivos) vem do quadro de destino, sem eventos.
+- **Kill cam**: a partida guarda os últimos ~4,5 s de quadros (`recent`). Quando alguém morre, no snapshot seguinte manda só para a vítima um `killcam` com os quadros dos últimos 4 s, filtrados para o abatedor e a vítima e cortados no tick do abate. O cliente (`OnlineRuntime.renderKillcam`) toca em tempo real com o rig da vítima e o do abatedor, câmera por cima do ombro com raycast no mapa.
+- **MVP**: `MvpStage` monta um `CharacterRig` animado com a skin equipada numa cena pequena própria.
+

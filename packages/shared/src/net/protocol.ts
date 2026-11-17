@@ -257,6 +257,40 @@ export interface SpecFrame {
   ev: MatchEventWire[];
 }
 
+// ───────────── Replay e kill cam (Fase 7, parte 4) ─────────────
+
+export const REPLAY_VERSION = 1;
+/** Um quadro de replay a cada N snapshots (60 Hz / 2 / 2 = 15 quadros por segundo). */
+export const REPLAY_EVERY_SNAPSHOTS = 2;
+/** Duração da kill cam (os últimos segundos antes do abate). */
+export const KILLCAM_MS = 4000;
+/** Replays ficam guardados por este tempo. */
+export const REPLAY_RETENTION_DAYS = 30;
+
+/** Arquivo de replay (JSON compactado com gzip no servidor). Os quadros têm o mesmo formato do espectador. */
+export interface ReplayFile {
+  v: number;
+  matchId: string;
+  mode: QueueMode;
+  map: string;
+  roundsToWin: number;
+  rules: CustomMatchRules | null;
+  players: MatchPlayerInfo[];
+  startedAt: string;
+  endedAt: string;
+  frames: SpecFrame[];
+}
+
+/** Kill cam: só o abatedor e a vítima, até o instante do abate (nada depois, nada de outros jogadores). */
+export interface KillcamWire {
+  t: "killcam";
+  killer: string;
+  victim: string;
+  weapon: string;
+  head: boolean;
+  frames: Array<{ tick: number; players: WireSpec[] }>;
+}
+
 /** Resultado ranqueado do próprio jogador, enviado depois que o servidor grava a partida. */
 export interface RankedResultWire {
   t: "ranked_result";
@@ -300,4 +334,5 @@ export type ServerMessage =
   | SpecFrame
   | { t: "spec_end" }
   /** XP, medalhas, missões e conquistas da partida (depois de gravada). */
-  | MatchProgressWire;
+  | MatchProgressWire
+  | KillcamWire;

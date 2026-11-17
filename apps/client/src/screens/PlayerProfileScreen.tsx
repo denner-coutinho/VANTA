@@ -112,7 +112,7 @@ export function PlayerProfileScreen() {
               <span className="label">Últimas partidas</span>
               {data.recent.length === 0 ? <p className="muted">Nenhuma partida da fila ainda.</p> : (
                 <table className="room-table" data-testid="profile-recent">
-                  <thead><tr><th>Quando</th><th>Modo</th><th>Mapa</th><th>Resultado</th><th>K/D/A</th><th>Medalhas</th></tr></thead>
+                  <thead><tr><th>Quando</th><th>Modo</th><th>Mapa</th><th>Resultado</th><th>K/D/A</th><th>Medalhas</th>{data.relation === "self" && <th />}</tr></thead>
                   <tbody>
                     {data.recent.map((m) => (
                       <tr key={m.matchId}>
@@ -122,6 +122,7 @@ export function PlayerProfileScreen() {
                         <td className={m.result === "WIN" ? "win" : m.result === "LOSS" || m.result === "ABANDON" ? "loss" : ""}>{m.result ? RESULT[m.result] : "—"}{m.mvp ? " · MVP" : ""}</td>
                         <td>{m.kills}/{m.deaths}/{m.assists}</td>
                         <td className="small">{m.medals.map((c) => MEDALS[c as MedalCode]?.name ?? c).join(", ") || "—"}</td>
+                        {data.relation === "self" && <td>{m.hasReplay ? <Link to={`/replay/${m.matchId}`} className="btn-mini ghost" data-testid={`replay-link-${m.matchId}`}>Replay</Link> : <span className="muted small" title="Replays ficam guardados por 30 dias">—</span>}</td>}
                       </tr>
                     ))}
                   </tbody>

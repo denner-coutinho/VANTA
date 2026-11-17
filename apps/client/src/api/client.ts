@@ -33,8 +33,8 @@ export class ApiClient {
     return () => this.listeners.delete(l);
   }
 
-  async request<T>(method: string, path: string, body?: unknown, opts: { auth?: boolean; retry?: boolean } = {}): Promise<T> {
-    const { auth = true, retry = true } = opts;
+  async request<T>(method: string, path: string, body?: unknown, opts: { auth?: boolean; retry?: boolean; raw?: boolean } = {}): Promise<T> {
+    const { auth = true, retry = true, raw = false } = opts;
     const headers: Record<string, string> = { "X-Vanta-Client": "web" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (auth && this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
@@ -48,9 +48,10 @@ export class ApiClient {
 
     if (res.status === 401 && auth && retry && this.accessToken) {
       const refreshed = await this.refresh();
-      if (refreshed) return this.request<T>(method, path, body, { auth, retry: false });
+      if (refreshed) return this.request<T>(method, path, body, { auth, retry: false, raw });
     }
     if (res.status === 204) return undefined as T;
+    if (raw && res.ok) return (await res.arrayBuffer()) as T;
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const err = (data as ApiErrorBody | null)?.error;
@@ -76,6 +77,10 @@ export class ApiClient {
     return this.refreshing;
   }
 
+  /** Corpo binário (ex.: replay compactado). */
+  bytes(path: string) {
+    return this.request<ArrayBuffer>("GET", path, undefined, { raw: true });
+  }
   get<T>(path: string) {
     return this.request<T>("GET", path);
   }

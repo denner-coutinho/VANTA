@@ -609,6 +609,7 @@ model Match {
   players   MatchPlayer[]
   events    MatchEvent[]
   clanGames ClanMatch[]
+  replay    MatchReplay?
 
   @@index([status])
   @@index([mode, type, createdAt])
@@ -646,6 +647,22 @@ model MatchPlayer {
 
   @@unique([matchId, userId])
   @@index([userId, joinedAt])
+}
+
+/// Replay da partida: quadros (posição, mira, vida de todos) a 15 Hz + eventos públicos, JSON com gzip.
+/// O hash SHA-256 também vai em Match.replayHash. Apagado depois de REPLAY_RETENTION_DAYS.
+model MatchReplay {
+  matchId    String   @id
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  version    Int
+  durationMs Int
+  frameCount Int
+  sizeBytes  Int
+  sha256     String
+  data       Bytes
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 /// Eventos de partida (kills, rounds, disparos relevantes). Base para replay e kill cam.

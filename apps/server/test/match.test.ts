@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANIM_FLAG, SPECTATOR_DELAY_MS, MAP_REGISTRY, MAX_HEALTH, WEAPON_CATALOG, eyeHeight, weaponStatsFromRow, type MatchEventWire, type PlayerCommand, type ServerMessage, type Vec3 } from "@vanta/shared";
+import { ANIM_FLAG, KILLCAM_MS, SPECTATOR_DELAY_MS, MAP_REGISTRY, MAX_HEALTH, WEAPON_CATALOG, eyeHeight, weaponStatsFromRow, type MatchEventWire, type PlayerCommand, type ServerMessage, type Vec3 } from "@vanta/shared";
 import { Match, type MatchResult, type MatchSeat } from "../src/game/match.js";
 
 const W = (code: string) => weaponStatsFromRow(WEAPON_CATALOG.find((w) => w.code === code)! as unknown as Record<string, unknown>);
@@ -382,5 +382,60 @@ describe("partida personalizada (sala)", () => {
     expect(hasEnd()).toBe(false);
     for (let i = 0; i < 400 && !hasEnd(); i++) h.m.step();
     expect(hasEnd()).toBe(true);
+  });
+
+  it("kill cam: a vítima recebe só o abatedor e ela mesma, nos últimos 4 s até o abate; os outros não recebem", () => {
+    const h = setup(2);
+    untilLive(h);
+    place(h, "u1", { x: 5, y: 0, z: -23 });
+    place(h, "u3", { x: 5, y: 0, z: -15 });
+    place(h, "u2", { x: -20, y: 0, z: -23 });
+    place(h, "u4", { x: -20, y: 0, z: 20 });
+    for (let i = 0; i < 10; i++) tick(h);
+    let killTick = -1;
+    for (let i = 0; i < 300 && h.m.player("u3")!.c.alive; i++) {
+      tick(h, { u1: { ...aimAt(eyeOf(h, "u1"), headOf(h, "u3")), fire: true, aim: true } });
+      if (!h.m.player("u3")!.c.alive) killTick = h.m.tick;
+    }
+    expect(killTick).toBeGreaterThan(0);
+    tick(h);
+    tick(h);
+    const cams = (id: string) => h.inbox.get(id)!.filter((m): m is Extract<ServerMessage, { t: "killcam" }> => m.t === "killcam");
+    expect(cams("u1")).toHaveLength(0);
+    expect(cams("u2")).toHaveLength(0);
+    expect(cams("u4")).toHaveLength(0);
+    const [cam] = cams("u3");
+    expect(cam).toMatchObject({ killer: "u1", victim: "u3" });
+    const ids = new Set(cam!.frames.flatMap((f) => f.players.map((p) => p[0])));
+    expect([...ids].sort()).toEqual(["u1", "u3"]);
+    const ticks = cam!.frames.map((f) => f.tick);
+    expect(Math.max(...ticks)).toBeLessThanOrEqual(killTick + 2);
+    expect((Math.max(...ticks) - Math.min(...ticks)) * (1000 / 60)).toBeLessThanOrEqual(KILLCAM_MS + 40);
+    expect(cam!.frames.length).toBeGreaterThan(30);
+  });
+
+  it("replay: quadros de todos os jogadores a ~15 Hz, sem aquecimento, com abates, rounds e fim", () => {
+    const h = setup();
+    for (let r = 0; r < h.m.roundsToWin; r++) {
+      untilLive(h);
+      duelPositions(h);
+      for (let i = 0; i < 300 && h.m.player("u2")!.c.alive; i++) tick(h, { u1: { ...aimAt(eyeOf(h, "u1"), headOf(h, "u2")), fire: true, aim: true, reload: i % 90 === 89 } });
+      for (let i = 0; i < 260 && h.m.phase !== "freeze" && !h.m.isEnded; i++) tick(h);
+    }
+    const rep = h.results[0]!.replay!;
+    expect(rep).toMatchObject({ v: 1, matchId: "m1", mode: "1v1", map: "NEON_DISTRICT", roundsToWin: 5 });
+    expect(rep.players.map((p) => p.id)).toEqual(["u1", "u2"]);
+    const f = rep.frames;
+    expect(f.every((x) => x.phase !== "warmup" && x.players.length === 2)).toBe(true);
+    expect(f.every((x, i) => i === 0 || x.tick > f[i - 1]!.tick)).toBe(true);
+    const evs = f.flatMap((x) => x.ev);
+    expect(evs.filter((e) => e.k === "kill")).toHaveLength(5);
+    expect(evs.filter((e) => e.k === "round_end")).toHaveLength(5);
+    expect(evs.some((e) => e.k === "match_end")).toBe(true);
+    expect(evs.filter((e) => e.k === "shot").every((e) => e.k === "shot" && e.ends.length <= 1)).toBe(true);
+    const seconds = (f[f.length - 1]!.tick - f[0]!.tick) / 60;
+    const hz = f.length / seconds;
+    expect(hz).toBeGreaterThan(13);
+    expect(hz).toBeLessThan(18);
   });
 });

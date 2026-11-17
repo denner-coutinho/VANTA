@@ -109,6 +109,8 @@ export class SpectatorRuntime {
   private fpsT = 0;
   private fps = 0;
   private disposed = false;
+  /** Modo replay: todos os quadros já carregados e um relógio próprio (play, pausa, velocidade, busca). */
+  private playback: { tick: number; speed: number; playing: boolean } | null = null;
 
   constructor(
     private container: HTMLElement,
@@ -199,8 +201,93 @@ export class SpectatorRuntime {
     this.target = list[(i + dir + list.length) % list.length]!;
   }
 
+  // ───────────── Replay ─────────────
+
+  /** Carrega um replay inteiro: a partir daqui o relógio é o do replay, não o do servidor. */
+  loadReplay(frames: SpecFrame[]) {
+    this.frames = frames;
+    this.playback = { tick: frames[0]?.tick ?? 0, speed: 1, playing: true };
+    this.tickOffset = 0;
+    this.applyStateAt(this.playback.tick);
+  }
+
+  setPlaying(playing: boolean) {
+    if (!this.playback) return;
+    if (playing && this.playback.tick >= this.endTick) this.seek(this.startTick);
+    this.playback.playing = playing;
+    if (playing) this.resumeAudio();
+  }
+
+  setSpeed(speed: number) {
+    if (this.playback) this.playback.speed = clamp(speed, 0.25, 8);
+  }
+
+  /** Pula para um instante (sem disparar os eventos do meio: o placar e o K/D vêm do quadro). */
+  seek(tick: number) {
+    if (!this.playback) return;
+    this.playback.tick = clamp(tick, this.startTick, this.endTick);
+    this.applyStateAt(this.playback.tick);
+  }
+
+  get startTick() {
+    return this.frames[0]?.tick ?? 0;
+  }
+  get endTick() {
+    return this.frames[this.frames.length - 1]?.tick ?? 0;
+  }
+
+  playbackState() {
+    const p = this.playback;
+    return p ? { tick: p.tick, playing: p.playing, speed: p.speed, start: this.startTick, end: this.endTick } : null;
+  }
+
+  /** Início de cada round (marcadores na linha do tempo). */
+  roundMarks(): Array<{ round: number; tick: number }> {
+    const out: Array<{ round: number; tick: number }> = [];
+    for (const f of this.frames) if (f.phase !== "warmup" && out[out.length - 1]?.round !== f.round) out.push({ round: f.round, tick: f.tick });
+    return out;
+  }
+
+  /** Índice do último quadro com tick ≤ t (busca binária: replays têm milhares de quadros). */
+  private frameIndexAt(t: number) {
+    let lo = 0;
+    let hi = this.frames.length - 1;
+    if (hi < 0 || this.frames[0]!.tick > t) return -1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (this.frames[mid]!.tick <= t) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  }
+
+  private applyStateAt(t: number) {
+    const i = Math.max(0, this.frameIndexAt(t));
+    const f = this.frames[i];
+    if (!f) return;
+    this.last = f;
+    this.kd.clear();
+    for (const [id, k, d, a] of f.kd) this.kd.set(id, [k, d, a]);
+  }
+
+  private advancePlayback(dt: number) {
+    const p = this.playback!;
+    if (!p.playing) return;
+    const from = p.tick;
+    p.tick = Math.min(this.endTick, p.tick + (dt * 1000 * p.speed) / TICK_MS);
+    // Eventos dos quadros que passaram (tiros, abates, fim de round), como se fosse ao vivo.
+    let i = this.frameIndexAt(from) + 1;
+    for (; i < this.frames.length && this.frames[i]!.tick <= p.tick; i++) {
+      const f = this.frames[i]!;
+      this.last = f;
+      for (const [id, k, d, a] of f.kd) this.kd.set(id, [k, d, a]);
+      for (const ev of f.ev) this.onMatchEvent(ev);
+    }
+    if (p.tick >= this.endTick) p.playing = false;
+  }
+
   handleMessage(m: ServerMessage) {
-    if (m.t !== "spec") return;
+    if (m.t !== "spec" || this.playback) return;
     const now = performance.now();
     const sample = m.tick - now / TICK_MS;
     if (this.tickOffset === null || Math.abs(sample - this.tickOffset) > 30) this.tickOffset = sample;
@@ -300,6 +387,7 @@ export class SpectatorRuntime {
       this.fpsFrames = 0;
       this.fpsT = 0;
     }
+    if (this.playback) this.advancePlayback(dt);
     this.interpolate(dt);
     this.updateCamera(dt);
     this.fx.update(dt);
@@ -310,7 +398,7 @@ export class SpectatorRuntime {
     if (this.hudTimer > 1 / 15) {
       this.hudTimer = 0;
       const s = this.last;
-      const est = this.tickOffset === null ? 0 : performance.now() / TICK_MS + this.tickOffset;
+      const est = this.playback ? this.playback.tick : this.tickOffset === null ? 0 : performance.now() / TICK_MS + this.tickOffset;
       this.onHud({
         phase: s?.phase ?? "warmup",
         phaseEndsIn: s ? Math.max(0, s.phaseEndsIn - (est - s.tick) * TICK_MS) : 0,
@@ -331,16 +419,10 @@ export class SpectatorRuntime {
 
   private interpolate(dt: number) {
     if (this.tickOffset === null) return;
-    const rt = performance.now() / TICK_MS + this.tickOffset - INTERP_DELAY_TICKS;
-    let a: SpecFrame | undefined;
-    let b: SpecFrame | undefined;
-    for (let i = this.frames.length - 1; i >= 0; i--) {
-      if (this.frames[i]!.tick <= rt) {
-        a = this.frames[i];
-        b = this.frames[i + 1];
-        break;
-      }
-    }
+    const rt = this.playback ? this.playback.tick : performance.now() / TICK_MS + this.tickOffset - INTERP_DELAY_TICKS;
+    const idx = this.frameIndexAt(rt);
+    let a: SpecFrame | undefined = idx >= 0 ? this.frames[idx] : undefined;
+    let b: SpecFrame | undefined = idx >= 0 ? this.frames[idx + 1] : undefined;
     a ??= this.frames[0];
     if (!a) return;
     const t = b ? clamp((rt - a.tick) / (b.tick - a.tick), 0, 1) : 0;

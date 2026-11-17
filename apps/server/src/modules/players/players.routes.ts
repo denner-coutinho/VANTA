@@ -60,7 +60,7 @@ export async function playerRoutes(app: FastifyInstance) {
         where: { userId: u.id, match: { status: "FINISHED", type: { in: ["CASUAL", "RANKED"] } } },
         orderBy: { joinedAt: "desc" },
         take: 10,
-        include: { match: { select: { id: true, mode: true, type: true, endedAt: true, map: { select: { code: true } } } } },
+        include: { match: { select: { id: true, mode: true, type: true, endedAt: true, map: { select: { code: true } }, replay: { select: { matchId: true } } } } },
       }),
       u.id === viewer ? Promise.resolve(null) : app.prisma.friend.findFirst({ where: { OR: [{ userAId: u.id, userBId: viewer }, { userAId: viewer, userBId: u.id }] }, select: { id: true } }),
     ]);
@@ -84,6 +84,7 @@ export async function playerRoutes(app: FastifyInstance) {
         mvp: m.isMvp,
         medals: m.medals,
         endedAt: m.match.endedAt?.toISOString() ?? null,
+        ...(u.id === viewer ? { hasReplay: !!m.match.replay } : {}),
       })),
       relation: u.id === viewer ? "self" : friend ? "friend" : "none",
     };
