@@ -31,6 +31,13 @@ const envSchema = z.object({
   /** Só para testar o pacote de produção em http://localhost. Em produção real fica false (exige https). */
   ALLOW_INSECURE_HTTP: bool(false),
   REDIS_KEY_PREFIX: z.string().default("vanta:"),
+  /**
+   * Vários servidores de jogo: nome deste nó (ex.: game1). Vazio = um processo só, sem cluster.
+   * Com nome, filas, presença, grupos e salas passam pelo Redis e o cliente é levado ao nó certo.
+   */
+  GAME_NODE_ID: z.string().regex(/^[a-z0-9-]{1,32}$/, "GAME_NODE_ID: letras minúsculas, números e hífen").optional().or(z.literal("")).default(""),
+  /** URL WebSocket deste nó para o cliente, só quando não há nginx na frente (desenvolvimento). */
+  GAME_PUBLIC_URL: z.string().regex(/^wss?:\/\//, "GAME_PUBLIC_URL deve começar com ws:// ou wss://").optional().or(z.literal("")).default(""),
   /** Limite geral de requisições por IP por minuto (rotas sensíveis têm limites próprios, menores). */
   RATE_LIMIT_PER_MIN: z.coerce.number().int().min(10).max(1_000_000).default(300),
   /** Libera GET /metrics (Prometheus) com "Authorization: Bearer <token>". Vazio: endpoint desligado. */
