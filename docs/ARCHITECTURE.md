@@ -176,3 +176,11 @@ navegador ──HTTP /api──▶ API Fastify (:4000) ──▶ PostgreSQL / Re
 - **Kill cam**: a partida guarda os últimos ~4,5 s de quadros (`recent`). Quando alguém morre, no snapshot seguinte manda só para a vítima um `killcam` com os quadros dos últimos 4 s, filtrados para o abatedor e a vítima e cortados no tick do abate. O cliente (`OnlineRuntime.renderKillcam`) toca em tempo real com o rig da vítima e o do abatedor, câmera por cima do ombro com raycast no mapa.
 - **MVP**: `MvpStage` monta um `CharacterRig` animado com a skin equipada numa cena pequena própria.
 
+## Painel administrativo e teclas (Fase 7, parte 5)
+
+- **Permissões em `@vanta/shared/admin.ts`**: `ROLE_PERMISSIONS` (moderador ⊂ admin ⊂ superadmin), `outranks` (só se age sobre cargo menor), `punishmentError` (tipo e prazo por cargo) e `canRevoke`. O cliente usa as mesmas funções só para esconder opções; o servidor confere tudo em `modules/admin`.
+- **Serviço** (`admin.service.ts`): cada ação roda numa transação que também grava `AdminAuditLog` (ator, IP, alvo, antes e depois). O registro já era somente inserção desde a Fase 1 (gatilho `vanta_forbid_mutation`); a migração `20261117020000_admin_audit_indexes` só acrescenta índices para a busca por ação e data.
+- **Efeito imediato**: suspensão e banimento mudam `User.status`, incrementam `tokenVersion` e revogam as `AuthSession`. Depois do commit, a API publica `account_changed` no barramento Redis; o servidor de jogo reconfere aquela conta na hora (desiste da partida e fecha a conexão). Silêncio publica `relations_changed` (o servidor de jogo recarrega o silêncio de chat). `RANKED_BAN` é conferido ao entrar na fila ranqueada, para todos os membros do grupo.
+- **Denúncia**: `SELECT … FOR UPDATE` na linha da denúncia evita dois tratamentos ao mesmo tempo; a punição, quando há, entra na mesma transação.
+- **Teclas** (`@vanta/shared/keybinds.ts`): códigos físicos (`KeyboardEvent.code`) e `Mouse0..4`, até 2 por ação, `sanitizeKeybinds` aceita qualquer entrada e devolve um mapa válido sem repetição. `InputManager` trata tecla e botão do mouse pelo mesmo caminho, então atirar e mirar também são remapeáveis. As configurações vão para `UserProfile.settings` (`PUT /me/settings`, validado com o mesmo schema) e voltam ao entrar na conta.
+

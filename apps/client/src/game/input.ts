@@ -1,21 +1,22 @@
-/** Mapa de teclas (código físico, independe do layout ABNT/US). Personalizável no futuro pelas configurações. */
-export const KEYBINDS = {
-  forward: ["KeyW", "ArrowUp"],
-  back: ["KeyS", "ArrowDown"],
-  left: ["KeyA", "ArrowLeft"],
-  right: ["KeyD", "ArrowRight"],
-  jump: ["Space"],
-  sprint: ["ShiftLeft", "ShiftRight"],
-  // Ctrl+W fecha a aba fora da tela cheia; por isso C também agacha.
-  crouch: ["ControlLeft", "ControlRight", "KeyC"],
-  reload: ["KeyR"],
-  interact: ["KeyE"],
-  slot1: ["Digit1"],
-  slot2: ["Digit2"],
-  slot3: ["Digit3"],
-} as const;
+import { DEFAULT_KEYBINDS, sanitizeKeybinds, type BindAction, type Keybinds } from "@vanta/shared";
 
-export type Action = keyof typeof KEYBINDS;
+/**
+ * Mapa de teclas atual (código físico, independe do layout ABNT/US). Remapeável nas configurações;
+ * botões do mouse entram como "Mouse0".."Mouse4".
+ */
+let KEYBINDS: Keybinds = sanitizeKeybinds(DEFAULT_KEYBINDS);
+export function setKeybinds(b: Keybinds) {
+  KEYBINDS = sanitizeKeybinds(b);
+}
+export function currentKeybinds(): Keybinds {
+  return KEYBINDS;
+}
+/** A tecla (ou botão) do evento faz essa ação? Usado pelas telas (placar, chat). */
+export function matchesBind(a: BindAction, code: string) {
+  return KEYBINDS[a].includes(code);
+}
+
+export type Action = BindAction;
 
 export class InputManager {
   private down = new Set<string>();
@@ -64,8 +65,9 @@ export class InputManager {
     return t;
   }
 
+  /** Rodinha do mouse mais a tecla de próxima arma. */
   consumeWheel() {
-    const w = this.wheel;
+    const w = this.wheel + (this.consume("nextWeapon") ? 1 : 0);
     this.wheel = 0;
     return w;
   }
@@ -77,16 +79,32 @@ export class InputManager {
     return d;
   }
 
+  /** Tecla ou botão do mouse pressionado (o mesmo caminho para os dois: qualquer ação aceita qualquer um). */
+  private press(code: string) {
+    if (!this.down.has(code)) {
+      this.pressedOnce.add(code);
+      if (KEYBINDS.fire.includes(code)) this.fireTap = true;
+    }
+    this.down.add(code);
+    this.syncButtons();
+  }
+  private release(code: string) {
+    this.down.delete(code);
+    this.syncButtons();
+  }
+  private syncButtons() {
+    this.fire = this.isDown("fire");
+    this.aim = this.isDown("aim");
+  }
   private onKeyDown = (e: KeyboardEvent) => {
     if (!this.locked) return;
     // Digitando num campo (ex.: chat): as teclas são do campo, não do jogo.
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     if (e.code !== "Escape" && e.code !== "F11" && e.code !== "F12") e.preventDefault();
-    if (!this.down.has(e.code)) this.pressedOnce.add(e.code);
-    this.down.add(e.code);
+    this.press(e.code);
   };
-  private onKeyUp = (e: KeyboardEvent) => this.down.delete(e.code);
+  private onKeyUp = (e: KeyboardEvent) => this.release(e.code);
   private lockedAt = 0;
   private onMouseMove = (e: MouseEvent) => {
     if (!this.locked) return;
@@ -97,16 +115,10 @@ export class InputManager {
   };
   private onMouseDown = (e: MouseEvent) => {
     if (!this.locked) return;
-    if (e.button === 0) {
-      this.fire = true;
-      this.fireTap = true;
-    }
-    if (e.button === 2) this.aim = true;
+    if (e.button === 1 || e.button > 2) e.preventDefault(); // botão do meio e laterais: sem rolar nem voltar página
+    this.press(`Mouse${e.button}`);
   };
-  private onMouseUp = (e: MouseEvent) => {
-    if (e.button === 0) this.fire = false;
-    if (e.button === 2) this.aim = false;
-  };
+  private onMouseUp = (e: MouseEvent) => this.release(`Mouse${e.button}`);
   private onWheel = (e: WheelEvent) => {
     if (this.locked) this.wheel += Math.sign(e.deltaY);
   };

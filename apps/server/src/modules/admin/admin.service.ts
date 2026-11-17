@@ -198,7 +198,11 @@ export class AdminService {
     const canEmail = hasPermission(actor.role, "users.viewEmail");
     const openReports = u.reportsAgainst.filter((r) => r.status === "OPEN" || r.status === "IN_REVIEW").length;
     // Abrir a ficha com e-mail completo é um acesso a dado pessoal: fica registrado.
-    if (canEmail) await this.audit(this.db, actor, "user.view", "User", u.id, { after: { username: u.username } });
+    // (Uma linha a cada 10 minutos por pessoa e ficha, para o registro não encher com recarregamentos.)
+    if (canEmail) {
+      const recent = await this.db.adminAuditLog.findFirst({ where: { actorId: actor.userId, action: "user.view", targetId: u.id, createdAt: { gte: new Date(Date.now() - 10 * 60_000) } }, select: { id: true } });
+      if (!recent) await this.audit(this.db, actor, "user.view", "User", u.id, { after: { username: u.username } });
+    }
     return {
       id: u.id,
       username: u.username,

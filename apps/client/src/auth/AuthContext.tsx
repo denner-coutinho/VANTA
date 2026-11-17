@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AuthResponse, LoginInput, MeResponse, RegisterInput } from "@vanta/shared";
 import { api } from "../api/client";
+import { pullAccountSettings } from "../screens/SettingsPanel";
 
 type Status = "checking" | "anonymous" | "authenticated";
 
@@ -22,6 +23,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const reloadMe = useCallback(async () => {
     const data = await api.get<MeResponse>("/me");
+    // Teclas e sensibilidade da conta chegam antes das telas montarem (se falhar, fica a deste navegador).
+    await pullAccountSettings().catch(() => undefined);
     setMe(data);
     setStatus("authenticated");
   }, []);

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CHAT_CHANNEL_LABEL, CHAT_MAX_LEN, type ChatChannel } from "@vanta/shared";
 import { useSocial } from "./SocialContext";
+import { matchesBind } from "../game/input";
 
 /**
- * Chat da partida. Enter abre o chat da equipe e Shift+Enter o chat de todos.
+ * Chat da partida. A tecla de chat (Enter) abre o chat da equipe; Shift + ela ou a tecla de chat de todos (Y) abre o de todos.
  * Enquanto digita, o ponteiro é liberado (o jogo não recebe as teclas) e volta ao enviar ou com Esc.
  */
 export function MatchChat({ teamChat, myTeamIds, onTyping, resume, disabled }: { teamChat: boolean; myTeamIds: Set<string>; onTyping: (t: boolean) => void; resume: () => void; disabled?: boolean }) {
@@ -16,10 +17,12 @@ export function MatchChat({ teamChat, myTeamIds, onTyping, resume, disabled }: {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (channel || disabled || e.code !== "Enter" && e.code !== "NumpadEnter") return;
+      const team = matchesBind("chat", e.code) || (e.code === "NumpadEnter" && matchesBind("chat", "Enter"));
+      const all = matchesBind("chatAll", e.code);
+      if (channel || disabled || (!team && !all)) return;
       if (document.activeElement && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
       e.preventDefault();
-      const ch: ChatChannel = e.shiftKey || !teamChat ? "all" : "team";
+      const ch: ChatChannel = all || e.shiftKey || !teamChat ? "all" : "team";
       setChannel(ch);
       onTyping(true);
       document.exitPointerLock?.();

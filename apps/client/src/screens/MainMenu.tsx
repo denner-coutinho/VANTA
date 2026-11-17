@@ -124,6 +124,11 @@ export function MainMenu() {
               <span className="label" style={placed ? { color: rp.rank.color } : undefined}>{placed ? rp.rank.name : "Sem patente"}</span>
             </div>
           </button>
+          {me.user.role !== "PLAYER" && (
+            <button className="icon-btn panel cut cut-sm" aria-label="Painel administrativo" title="Painel administrativo" onClick={() => navigate("/admin")} onMouseEnter={() => uiSound.hover()} data-testid="open-admin">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2.5 4 5.5v6c0 4.8 3.4 8.6 8 10 4.6-1.4 8-5.2 8-10v-6z" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>
+            </button>
+          )}
           <button className="icon-btn panel cut cut-sm friends-btn" aria-label="Amigos" title="Amigos" onClick={() => setPanel("friends")} onMouseEnter={() => uiSound.hover()} data-testid="open-friends">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5" /><circle cx="17" cy="9" r="2.6" /><path d="M16 14.6c2.9-.2 5 1.4 5.5 4.4" /></svg>
             {(social.overview?.incoming.length ?? 0) > 0 ? <span className="badge alert-badge">{social.overview!.incoming.length}</span> : social.onlineFriends > 0 ? <span className="badge">{social.onlineFriends}</span> : null}
