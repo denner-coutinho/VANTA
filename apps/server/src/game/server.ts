@@ -43,6 +43,8 @@ import { applyMatchProgression } from "../modules/progression/progression.servic
 import { applyClanResults } from "../modules/clans/clans.service.js";
 import { saveReplay } from "../modules/matches/replay.js";
 import { createRegistry, gameMetrics, metricsAuthorized, type GameMetrics } from "../lib/metrics.js";
+import type { RoomListItem } from "@vanta/shared";
+import { LocalCluster, type Cluster, type ClusterMessage, type MatchSpec, type Ticket, type TicketEntry } from "./cluster.js";
 import type { Registry } from "prom-client";
 
 export interface GameServerOptions {
@@ -66,6 +68,10 @@ export interface GameServerOptions {
   hasher?: PasswordHasher;
   /** Libera GET /metrics (Prometheus) com esse token. Vazio: endpoint desligado. */
   metricsToken?: string;
+  /** Vários processos de jogo (Redis). Padrão: um processo só, tudo em memória. */
+  cluster?: Cluster;
+  /** URL WebSocket deste nó, quando o cliente não passa por um proxy que entende ?node= (desenvolvimento). */
+  publicUrl?: string;
 }
 
 interface Client {
@@ -77,8 +83,10 @@ interface Client {
   characterId: string | null;
   character: string;
   match: Match | null;
-  /** Fila em que está: modo + tipo (casual/ranqueada). */
-  queued: { mode: QueueMode; ranked: boolean } | null;
+  /** Fila em que está: modo + tipo (casual/ranqueada) e o bilhete. */
+  queued: { mode: QueueMode; ranked: boolean; ticketId: string } | null;
+  /** Mandado para outro nó: ao fechar, não aparece offline para os amigos. */
+  redirecting: boolean;
   msgWindowStart: number;
   msgCount: number;
   helloTimer: NodeJS.Timeout | null;
@@ -99,19 +107,6 @@ interface Client {
   roomPwFails: number[];
 }
 
-interface QueueEntry {
-  client: Client;
-  loadout: WeaponStats[];
-  cosmetics: MatchCosmetics;
-}
-
-/** Um "bilhete" na fila: um jogador sozinho ou um grupo inteiro (nunca separado). */
-interface QueueTicket {
-  entries: QueueEntry[];
-  since: number;
-  /** MMR oculto na temporada (só nas filas ranqueadas, onde o bilhete é sempre de 1). */
-  mmr: number;
-}
 
 const queueKey = (mode: QueueMode, ranked: boolean) => `${mode}:${ranked ? "ranked" : "casual"}`;
 
@@ -128,7 +123,10 @@ export class GameServer {
   private wss: WebSocketServer;
   private verify: (token: string) => Record<string, unknown>;
   private clients = new Map<string, Client>();
-  private queues = new Map<string, QueueTicket[]>();
+  /** Bilhetes deste nó que estão na fila (a fila em si fica no cluster). */
+  private localTickets = new Map<string, { key: string; mode: QueueMode; ranked: boolean; since: number; userIds: string[] }>();
+  readonly cluster: Cluster;
+  private clusterTimer: NodeJS.Timeout | null = null;
   private parties = new PartyManager();
   /** Nome/personagem de quem já se conectou (para mostrar membros de grupo offline). */
   private userInfo = new Map<string, { username: string; character: string }>();
@@ -152,6 +150,7 @@ export class GameServer {
 
   constructor(private opts: GameServerOptions) {
     this.log = opts.log ?? console;
+    this.cluster = opts.cluster ?? new LocalCluster();
     this.hasher = opts.hasher ?? new PasswordHasher(19456);
     // Rotação de mapas: em ordem, um mapa por partida (opts.maps restringe, ex.: testes ou eventos).
     this.rotation = (opts.maps ?? MAP_ROTATION).filter((c) => MAP_REGISTRY[c]);
@@ -190,13 +189,26 @@ export class GameServer {
 
   async start(port: number, host = "0.0.0.0"): Promise<number> {
     await this.loadWeapons();
-    // As salas vivem na memória deste processo: as que ficaram abertas de uma execução anterior são encerradas.
-    await this.opts.prisma.room.updateMany({ where: { status: { not: "CLOSED" } }, data: { status: "CLOSED", closedAt: new Date() } });
+    // As salas vivem na memória do processo que as criou: as que ficaram abertas de uma execução anterior
+    // são encerradas (com vários nós, só as que não pertencem a nenhum nó vivo).
+    const liveRooms = this.cluster.multiNode ? (await this.cluster.roomAll()).map((r) => (JSON.parse(r.json) as { code: string }).code) : [];
+    await this.opts.prisma.room.updateMany({ where: { status: { not: "CLOSED" }, code: { notIn: liveRooms } }, data: { status: "CLOSED", closedAt: new Date() } });
+    await this.cluster.start((m) => this.onClusterMessage(m), () => ({ load: this.clients.size, url: this.opts.publicUrl ?? null }));
     await new Promise<void>((resolve) => this.http.listen(port, host, resolve));
     if (this.opts.autoTick !== false) {
       this.startLoop();
       // As janelas de MMR das filas ranqueadas abrem com o tempo: reavalia a cada segundo.
-      this.mmTimer = setInterval(() => this.matchmakingTick(), 1000);
+      this.mmTimer = setInterval(() => void this.matchmakingTick().catch((e) => this.log.error("[game] fila", e)), 1000);
+    } else if (this.cluster.multiNode) {
+      // Testes com vários nós: o líder forma as partidas de bilhetes vindos de outros nós.
+      this.mmTimer = setInterval(() => void this.matchmakingTick().catch((e) => this.log.error("[game] fila", e)), 300);
+    }
+    if (this.cluster.multiNode) {
+      // A contagem da fila muda com gente de outros nós: atualiza quem está esperando aqui.
+      this.clusterTimer = setInterval(() => {
+        const keys = new Map([...this.localTickets.values()].map((t) => [t.key, t] as const));
+        for (const t of keys.values()) void this.broadcastQueue(t.mode, t.ranked).catch(() => {});
+      }, 2000);
     }
     this.recheckTimer = setInterval(() => void this.recheckAccounts(), this.opts.recheckMs ?? 30_000);
     if (this.opts.bus) this.unsubscribe = await this.opts.bus.subscribe((to, ev) => this.onSocialEvent(to, ev));
@@ -241,6 +253,7 @@ export class GameServer {
   async stop() {
     if (this.timer) clearTimeout(this.timer);
     if (this.mmTimer) clearInterval(this.mmTimer);
+    if (this.clusterTimer) clearInterval(this.clusterTimer);
     if (this.recheckTimer) clearInterval(this.recheckTimer);
     for (const t of this.partyGrace.values()) clearTimeout(t);
     for (const t of this.roomGrace.values()) clearTimeout(t);
@@ -250,6 +263,7 @@ export class GameServer {
     await new Promise<void>((r) => this.wss.close(() => r()));
     await new Promise<void>((r) => this.http.close(() => r()));
     await Promise.allSettled([...this.pendingSaves]);
+    await this.cluster.stop();
   }
 
   private send(c: Client, msg: ServerMessage) {
@@ -265,13 +279,14 @@ export class GameServer {
     const matches: Record<string, number> = { "1v1": 0, "2v2": 0, "3v3": 0 };
     for (const m of this.matches.values()) if (!m.isEnded) matches[m.mode] = (matches[m.mode] ?? 0) + 1;
     const queues: Record<string, number> = {};
-    for (const [key, q] of this.queues) queues[key] = q.length;
+    // Jogadores deste nó em cada fila (a soma dos nós dá o total).
+    for (const t of this.localTickets.values()) queues[t.key] = (queues[t.key] ?? 0) + t.userIds.length;
     return { connections: this.wss.clients.size, players: this.clients.size, matches, queues };
   }
 
   private onConnection(ws: WebSocket) {
     const client: Client = {
-      ws, userId: null, username: "", tokenVersion: 0, color: "#287BFF", characterId: null, character: "RAVEN", match: null, queued: null,
+      ws, userId: null, username: "", tokenVersion: 0, color: "#287BFF", characterId: null, character: "RAVEN", match: null, queued: null, redirecting: false,
       msgWindowStart: Date.now(), msgCount: 0, helloTimer: null,
       friends: new Set(), blockRel: new Set(), muted: new Set(), chatBanUntil: 0, chatTimes: [], presence: "offline", loadout: null,
       spectating: null, lastRoomCreate: 0, roomPwFails: [],
@@ -376,6 +391,7 @@ export class GameServer {
         if (c.match) {
           c.match.forfeit(c.userId);
           c.match = null;
+          this.syncHome(c.userId);
           this.send(c, { t: "left_match" });
           this.updatePresence(c);
         }
@@ -427,6 +443,12 @@ export class GameServer {
       return c.ws.close(4001, "unauthorized");
     }
     if (c.helloTimer) clearTimeout(c.helloTimer);
+    // Partida, grupo ou sala em outro nó: vai para lá.
+    const home = this.cluster.multiNode ? await this.cluster.home(user.id) : null;
+    if (home && home !== this.cluster.nodeId) {
+      if (c.ws.readyState !== WebSocket.OPEN) return;
+      return this.redirect(c, home);
+    }
     c.userId = user.id;
     c.username = user.username;
     c.tokenVersion = user.tokenVersion;
@@ -452,6 +474,8 @@ export class GameServer {
     }
     this.clients.set(user.id, c);
     this.userInfo.set(user.id, { username: user.username, character: c.character });
+    // Uma conexão por conta também entre nós: o nó antigo derruba a dele.
+    if (this.cluster.multiNode) this.track(this.cluster.send({ k: "kick", from: this.cluster.nodeId, userId: user.id }), "conexão única");
 
     const match = [...this.matches.values()].find((m) => !m.isEnded && m.player(user.id) && !m.player(user.id)!.abandoned);
     this.send(c, { t: "welcome", userId: user.id, username: user.username, inMatch: !!match });
@@ -461,7 +485,9 @@ export class GameServer {
     }
     // Presença: avisa os amigos e manda para o jogador a situação de cada amigo.
     this.updatePresence(c, true);
-    this.send(c, { t: "presence", full: true, list: [...c.friends].map((id) => [id, this.clients.get(id)?.presence ?? "offline"]) });
+    const remote = this.cluster.multiNode ? await this.cluster.presence([...c.friends].filter((id) => !this.clients.has(id))) : new Map<string, PresenceState>();
+    if (this.clients.get(user.id) !== c) return;
+    this.send(c, { t: "presence", full: true, list: [...c.friends].map((id) => [id, this.clients.get(id)?.presence ?? remote.get(id) ?? "offline"]) });
     // Voltou dentro do prazo: continua no grupo.
     const grace = this.partyGrace.get(user.id);
     if (grace) {
@@ -518,6 +544,175 @@ export class GameServer {
       const f = this.clients.get(fid);
       if (f && f.friends.has(c.userId)) this.send(f, { t: "presence", full: false, list: [[c.userId, s]] });
     }
+    // Amigos conectados em outros nós recebem pelo cluster; a presença fica guardada para quem chegar depois.
+    if (s !== "offline") this.track(this.cluster.setLocation(c.userId, s), "presença");
+    if (this.cluster.multiNode && c.friends.size) this.track(this.cluster.send({ k: "presence", from: this.cluster.nodeId, userId: c.userId, state: s }), "presença");
+  }
+
+  // ───────────── Cluster (vários nós) ─────────────
+
+  /** Tem partida, grupo ou sala neste nó? Então este nó é a "casa" do jogador (reconexões vêm para cá). */
+  private hasHomeState(userId: string) {
+    if ((this.parties.of(userId)?.members.length ?? 0) > 1) return true;
+    if (this.rooms.of(userId)) return true;
+    for (const m of this.matches.values()) {
+      const p = m.player(userId);
+      if (p && !p.abandoned && !m.isEnded) return true;
+    }
+    return false;
+  }
+
+  private syncHome(userId: string) {
+    this.track(this.hasHomeState(userId) ? this.cluster.setHome(userId) : this.cluster.clearHome(userId), "casa do jogador");
+  }
+
+  /** Manda o cliente reconectar em outro nó. */
+  private async redirect(c: Client, node: string) {
+    const info = (await this.cluster.nodes()).find((n) => n.id === node);
+    c.redirecting = true;
+    this.send(c, { t: "redirect", node, ...(info?.url ? { url: info.url } : {}) });
+    // O cliente fecha sozinho ao receber; se não fechar, fecha aqui.
+    setTimeout(() => c.ws.close(4010, "redirect"), 3000).unref();
+  }
+
+  private onClusterMessage(m: ClusterMessage) {
+    const self = this.cluster.nodeId;
+    switch (m.k) {
+      case "kick": {
+        if (m.from === self) return;
+        const old = this.clients.get(m.userId);
+        if (!old) return;
+        this.dequeue(old);
+        this.clients.delete(m.userId);
+        old.redirecting = true; // a pessoa continua online, só que em outro nó
+        old.userId = null;
+        if (old.match) old.match.detach(m.userId);
+        old.ws.close(4004, "replaced");
+        return;
+      }
+      case "presence": {
+        if (m.from === self) return;
+        for (const c of this.clients.values()) if (c.userId && c.friends.has(m.userId)) this.send(c, { t: "presence", full: false, list: [[m.userId, m.state]] });
+        return;
+      }
+      case "redirect": {
+        if (m.node === self) return;
+        const c = this.clients.get(m.userId);
+        if (!c) return;
+        // O bilhete dele virou partida em outro nó.
+        this.clearTicketOf(c);
+        void this.redirect(c, m.node).catch((e) => this.log.error("[game] redirecionamento", e));
+        return;
+      }
+      case "match_create":
+        if (m.node === self) this.createMatch(m.spec);
+        return;
+      case "queue_changed": {
+        if (m.from === self) return;
+        const [mode, kind] = m.key.split(":") as [QueueMode, string];
+        void this.tryMatch(mode, kind === "ranked").catch((e) => this.log.error("[game] fila", e));
+        void this.broadcastQueue(mode, kind === "ranked").catch(() => {});
+        return;
+      }
+      default:
+        return this.onClusterSocial(m);
+    }
+  }
+
+  /** Grupos e salas entre nós. */
+  private onClusterSocial(m: ClusterMessage) {
+    const self = this.cluster.nodeId;
+    switch (m.k) {
+      case "party_invite": {
+        const c = this.clients.get(m.to);
+        if (!c || c.blockRel.has(m.inviter.id)) return;
+        this.remotePartyInvites.set(m.partyId, m.from);
+        this.send(c, { t: "party_invite", partyId: m.partyId, from: m.inviter, expiresAt: m.expiresAt });
+        return;
+      }
+      case "party_respond":
+        if (m.node === self) this.partyRespondRemote(m);
+        return;
+      case "party_rejected":
+      case "room_rejected": {
+        const c = this.clients.get(m.to);
+        if (!c) return;
+        if (m.code === "ROOM_BAD_PASSWORD") c.roomPwFails.push(Date.now());
+        this.partyError(c, m.code, m.message);
+        return;
+      }
+      case "room_invite": {
+        const c = this.clients.get(m.to);
+        if (!c || c.blockRel.has(m.inviter.id)) return;
+        this.send(c, { t: "room_invite", code: m.code, name: m.name, from: m.inviter, expiresAt: m.expiresAt });
+        return;
+      }
+      case "room_join":
+        if (m.node === self) void this.roomJoinRemote(m).catch((e) => this.log.error("[game] entrada remota na sala", e));
+        return;
+    }
+  }
+
+  /** Resposta a convite de grupo de alguém conectado em outro nó (este nó é o do grupo). */
+  private partyRespondRemote(m: Extract<ClusterMessage, { k: "party_respond" }>) {
+    const reject = (code: string, message: string) => this.track(this.cluster.send({ k: "party_rejected", from: this.cluster.nodeId, to: m.user.id, code, message }), "grupo recusado");
+    const p = this.parties.takeInvite(m.partyId, m.user.id);
+    if (!p) return reject("INVITE_EXPIRED", "O convite expirou ou foi cancelado.");
+    if (!m.accept) {
+      const { party, orphaned } = this.parties.dissolveIfAlone(p);
+      if (party) this.broadcastParty(party);
+      for (const id of orphaned) {
+        const oc = this.clients.get(id);
+        if (oc) this.send(oc, { t: "party", party: null });
+        this.syncHome(id);
+      }
+      return;
+    }
+    if (this.parties.isFull(p)) return reject("PARTY_FULL", "O grupo está cheio.");
+    const leader = this.clients.get(p.leaderId);
+    if (!leader?.friends.has(m.user.id) || leader.blockRel.has(m.user.id)) return reject("INVITE_EXPIRED", "O convite expirou ou foi cancelado.");
+    if (leader.queued) {
+      this.dequeue(leader);
+      this.send(leader, { t: "queue", state: "idle" });
+    }
+    this.userInfo.set(m.user.id, { username: m.user.username, character: m.user.character });
+    this.parties.join(p, m.user.id);
+    // Entra como membro ainda desconectado: tem o prazo normal para chegar a este nó.
+    this.startPartyGrace(m.user.id);
+    this.broadcastParty(p);
+    this.track(this.cluster.setHome(m.user.id), "casa do jogador");
+    for (const id of p.members) if (id !== m.user.id) this.syncHome(id);
+    this.track(this.cluster.send({ k: "redirect", from: this.cluster.nodeId, userId: m.user.id, node: this.cluster.nodeId }), "redirecionamento");
+  }
+
+  /** Entrada em sala deste nó pedida por alguém conectado em outro nó. */
+  private async roomJoinRemote(m: Extract<ClusterMessage, { k: "room_join" }>) {
+    const reject = (code: string, message: string) => this.track(this.cluster.send({ k: "room_rejected", from: this.cluster.nodeId, to: m.user.id, code, message }), "sala recusada");
+    let room = this.rooms.byCode(m.code);
+    if (!room || m.blocked.includes(room.ownerId)) return reject("ROOM_NOT_FOUND", "Sala não encontrada. Confira o código.");
+    const me = m.user.id;
+    if (!room.members.has(me)) {
+      const invited = this.rooms.hasInvite(room, me);
+      if (room.passwordHash && !invited) {
+        if (!m.password) return reject("ROOM_PASSWORD", "Esta sala tem senha.");
+        const hash = room.passwordHash;
+        if (!(await this.hasher.verify(hash, m.password))) return reject("ROOM_BAD_PASSWORD", "Senha incorreta.");
+        room = this.rooms.byCode(m.code);
+        if (!room || room.passwordHash !== hash) return reject("ROOM_NOT_FOUND", "Sala não encontrada. Confira o código.");
+      }
+      const team = this.rooms.join(room, me, { spectate: m.spectate, invited });
+      if (team !== null && typeof team === "object") return reject(team.code, team.message);
+      this.userInfo.set(me, { username: m.user.username, character: m.user.character });
+      this.track(
+        this.opts.prisma.roomPlayer.upsert({ where: { roomId_userId: { roomId: room.id, userId: me } }, create: { roomId: room.id, userId: me, team }, update: { team, kickedAt: null, joinedAt: new Date() } }),
+        "entrada na sala",
+      );
+      // Ainda desconectado aqui: tem o prazo normal da sala para chegar.
+      this.startRoomGrace(me);
+      this.broadcastRoom(room);
+    }
+    await this.cluster.setHome(me);
+    await this.cluster.send({ k: "redirect", from: this.cluster.nodeId, userId: me, node: this.cluster.nodeId });
   }
 
   // ───────────── Eventos sociais (API → aqui → cliente) ─────────────
@@ -533,7 +728,12 @@ export class GameServer {
     this.send(c, { t: "social", ev });
     if (ev.k === "friend_accepted") {
       c.friends.add(ev.friend.id);
-      this.send(c, { t: "presence", full: false, list: [[ev.friend.id, this.clients.get(ev.friend.id)?.presence ?? "offline"]] });
+      const local = this.clients.get(ev.friend.id)?.presence;
+      if (local || !this.cluster.multiNode) this.send(c, { t: "presence", full: false, list: [[ev.friend.id, local ?? "offline"]] });
+      else
+        void this.cluster.presence([ev.friend.id]).then((m) => {
+          if (this.clients.get(to) === c) this.send(c, { t: "presence", full: false, list: [[ev.friend.id, m.get(ev.friend.id) ?? "offline"]] });
+        });
     } else if (ev.k === "friend_removed") {
       c.friends.delete(ev.userId);
       const p = this.parties.get(this.parties.of(to)?.id ?? "");
@@ -554,6 +754,9 @@ export class GameServer {
 
   // ───────────── Grupo ─────────────
 
+  /** Convites de grupo vindos de outros nós: grupo → nó onde ele vive. */
+  private remotePartyInvites = new Map<string, string>();
+
   private partyInfo = (id: string) => {
     const c = this.clients.get(id);
     const info = this.userInfo.get(id);
@@ -572,12 +775,14 @@ export class GameServer {
     this.send(c, { t: "error", code, message });
   }
 
-  private partyInvite(c: Client, targetId: string) {
+  private async partyInvite(c: Client, targetId: string) {
     const me = c.userId!;
     const target = this.clients.get(targetId);
     if (!c.friends.has(targetId)) return this.partyError(c, "NOT_FRIEND", "Você só pode convidar amigos.");
     if (c.blockRel.has(targetId)) return this.partyError(c, "NOT_FRIEND", "Você só pode convidar amigos.");
-    if (!target) return this.partyError(c, "OFFLINE", "Este amigo está offline.");
+    const remote = !target && this.cluster.multiNode ? await this.cluster.locate(targetId) : null;
+    if (!target && !remote) return this.partyError(c, "OFFLINE", "Este amigo está offline.");
+    if (this.clients.get(me) !== c) return;
     const current = this.parties.of(me);
     if (current && current.leaderId !== me) return this.partyError(c, "PARTY_NOT_LEADER", "Só o líder pode convidar.");
     if (current?.members.includes(targetId)) return this.partyError(c, "ALREADY_IN_PARTY", "Este amigo já está no seu grupo.");
@@ -585,12 +790,27 @@ export class GameServer {
     const p = this.parties.ensure(me);
     if (this.parties.isFull(p)) return this.partyError(c, "PARTY_FULL", "O grupo está cheio.");
     const expiresAt = this.parties.invite(p, targetId);
-    this.send(target, { t: "party_invite", partyId: p.id, from: { id: me, username: c.username }, expiresAt });
+    if (target) this.send(target, { t: "party_invite", partyId: p.id, from: { id: me, username: c.username }, expiresAt });
+    else this.track(this.cluster.send({ k: "party_invite", from: this.cluster.nodeId, to: targetId, partyId: p.id, inviter: { id: me, username: c.username }, expiresAt }), "convite de grupo");
     this.broadcastParty(p);
   }
 
   private partyRespond(c: Client, partyId: string, accept: boolean) {
     const me = c.userId!;
+    const remoteNode = !this.parties.get(partyId) ? this.remotePartyInvites.get(partyId) : undefined;
+    if (remoteNode) {
+      // O grupo vive em outro nó: ele decide; se aceitar, a pessoa é levada para lá.
+      this.remotePartyInvites.delete(partyId);
+      if (accept) {
+        if (c.match && !c.match.isEnded) return this.partyError(c, "IN_MATCH", "Você está em uma partida.");
+        if (this.rooms.of(me)) this.roomLeave(me);
+        if (this.parties.of(me)) this.partyLeave(me);
+        this.dequeue(c);
+        this.send(c, { t: "queue", state: "idle" });
+      }
+      this.track(this.cluster.send({ k: "party_respond", from: this.cluster.nodeId, node: remoteNode, partyId, user: { id: me, username: c.username, character: c.character }, accept }), "resposta de grupo");
+      return;
+    }
     const p = this.parties.takeInvite(partyId, me);
     if (!p) return this.partyError(c, "INVITE_EXPIRED", "O convite expirou ou foi cancelado.");
     if (!accept) {
@@ -617,6 +837,7 @@ export class GameServer {
     this.parties.join(p, me);
     this.updatePresence(c);
     this.broadcastParty(p);
+    for (const id of p.members) this.syncHome(id);
   }
 
   private partyLeave(userId: string) {
@@ -628,6 +849,7 @@ export class GameServer {
       this.send(leaving, { t: "queue", state: "idle" });
     }
     const { party, orphaned } = this.parties.remove(userId);
+    for (const id of [userId, ...orphaned]) this.syncHome(id);
     if (leaving) this.send(leaving, { t: "party", party: null });
     if (party) this.broadcastParty(party);
     for (const id of orphaned) {
@@ -719,6 +941,31 @@ export class GameServer {
       const c = this.clients.get(id);
       if (c) this.send(c, { t: "room", room: view });
     }
+    this.publishRoom(room);
+  }
+
+  /** Registro das salas no cluster: código → nó, e a linha da lista pública. */
+  private publishRoom(room: Room) {
+    if (!this.cluster.multiNode) return;
+    if (this.rooms.byCode(room.code) !== room) {
+      this.track(this.cluster.roomDel(room.code), "registro da sala");
+      return;
+    }
+    const item = { ...this.rooms.listItem(room, this.partyInfo(room.ownerId).username), ownerId: room.ownerId, isPrivate: room.settings.isPrivate };
+    this.track(this.cluster.roomPut(room.code, { node: this.cluster.nodeId, json: JSON.stringify(item) }), "registro da sala");
+    for (const id of room.members.keys()) this.syncHome(id);
+  }
+
+  /** Membro desconectado continua no grupo por um tempo (recarregar a página, ou trocar de nó). */
+  private startPartyGrace(userId: string) {
+    const old = this.partyGrace.get(userId);
+    if (old) clearTimeout(old);
+    const t = setTimeout(() => {
+      this.partyGrace.delete(userId);
+      if (!this.clients.has(userId)) this.partyLeave(userId);
+    }, this.opts.partyGraceMs ?? 60_000);
+    t.unref();
+    this.partyGrace.set(userId, t);
   }
 
   private startRoomGrace(userId: string) {
@@ -793,6 +1040,18 @@ export class GameServer {
     const me = c.userId!;
     const code = normalizeRoomCode(rawCode);
     let room = this.rooms.byCode(code);
+    if (!room && this.cluster.multiNode) {
+      // A sala está em outro nó: o nó dela decide (senha, vagas, banimento) e, se der certo, a pessoa vai para lá.
+      const entry = await this.cluster.roomGet(code);
+      if (entry && entry.node !== this.cluster.nodeId) {
+        if (!this.freeForRoom(c)) return;
+        const now = Date.now();
+        c.roomPwFails = c.roomPwFails.filter((t) => now - t < 60_000);
+        if (c.roomPwFails.length >= 5) return this.partyError(c, "ROOM_RATE", "Muitas tentativas. Espere um minuto.");
+        await this.cluster.send({ k: "room_join", from: this.cluster.nodeId, node: entry.node, code, user: { id: me, username: c.username, character: c.character, color: c.color }, password, spectate, blocked: [...c.blockRel] });
+        return;
+      }
+    }
     // Quem foi bloqueado pelo dono não descobre que a sala existe.
     if (!room || c.blockRel.has(room.ownerId)) return this.partyError(c, "ROOM_NOT_FOUND", "Sala não encontrada. Confira o código.");
     const already = room.members.get(me);
@@ -843,7 +1102,9 @@ export class GameServer {
     const db = this.opts.prisma;
     if (reason === "kicked") this.track(db.roomPlayer.updateMany({ where: { roomId: room.id, userId }, data: { kickedAt: new Date() } }), "remoção da sala");
     else this.track(db.roomPlayer.deleteMany({ where: { roomId: room.id, userId } }), "saída da sala");
+    this.syncHome(userId);
     if (closed) {
+      this.publishRoom(room);
       this.track(db.room.update({ where: { id: room.id }, data: { status: "CLOSED", closedAt: new Date() } }), "sala vazia");
     } else {
       if (newOwner) this.track(db.room.update({ where: { id: room.id }, data: { ownerId: newOwner } }), "novo dono da sala");
@@ -917,6 +1178,8 @@ export class GameServer {
     if (!room) return;
     if (room.match && !room.match.isEnded) return this.partyError(c, "ROOM_IN_MATCH", "Espere a partida acabar para encerrar a sala.");
     const ids = this.rooms.close(room);
+    this.publishRoom(room);
+    for (const id of ids) this.syncHome(id);
     for (const id of ids) {
       const m = this.clients.get(id);
       if (!m) continue;
@@ -928,28 +1191,39 @@ export class GameServer {
   }
 
   /** Lista pública: só salas não privadas (as privadas só por código ou convite). */
-  private roomList(c: Client) {
-    const rooms = this.rooms
+  private async roomList(c: Client) {
+    const local = this.rooms
       .all()
       .filter((r) => !r.settings.isPrivate && !c.blockRel.has(r.ownerId))
-      .map((r) => this.rooms.listItem(r, this.partyInfo(r.ownerId).username))
+      .map((r) => this.rooms.listItem(r, this.partyInfo(r.ownerId).username));
+    // Salas de outros nós (pelo registro do cluster).
+    const remote = this.cluster.multiNode
+      ? (await this.cluster.roomAll())
+          .filter((e) => e.node !== this.cluster.nodeId)
+          .map((e) => JSON.parse(e.json) as RoomListItem & { ownerId: string; isPrivate: boolean })
+          .filter((r) => !r.isPrivate && !c.blockRel.has(r.ownerId))
+          .map(({ ownerId: _o, isPrivate: _p, ...item }) => item as RoomListItem)
+      : [];
+    const rooms = [...local, ...remote]
       .sort((a, b) => Number(a.status === "in_match") - Number(b.status === "in_match") || Number(a.locked) - Number(b.locked) || b.players - a.players)
       .slice(0, 50);
     this.send(c, { t: "room_list", rooms });
   }
 
-  private roomInvite(c: Client, targetId: string) {
+  private async roomInvite(c: Client, targetId: string) {
     const room = this.rooms.of(c.userId!);
     if (!room) return this.partyError(c, "NO_ROOM", "Você não está em uma sala.");
     if (!c.friends.has(targetId) || c.blockRel.has(targetId)) return this.partyError(c, "NOT_FRIEND", "Você só pode convidar amigos.");
     const target = this.clients.get(targetId);
-    if (!target) return this.partyError(c, "OFFLINE", "Este amigo está offline.");
+    const remote = !target && this.cluster.multiNode ? await this.cluster.locate(targetId) : null;
+    if (!target && !remote) return this.partyError(c, "OFFLINE", "Este amigo está offline.");
     if (room.members.has(targetId)) return this.partyError(c, "ALREADY_IN_ROOM", "Este amigo já está na sala.");
     if (room.locked) return this.partyError(c, "ROOM_LOCKED", "A sala está trancada.");
     if (room.banned.has(targetId)) return this.partyError(c, "ROOM_BANNED", "Este jogador foi removido da sala.");
     const expiresAt = Date.now() + ROOM_INVITE_TTL_MS;
     room.invites.set(targetId, expiresAt);
-    this.send(target, { t: "room_invite", code: room.code, name: room.settings.name, from: { id: c.userId!, username: c.username }, expiresAt });
+    if (target) this.send(target, { t: "room_invite", code: room.code, name: room.settings.name, from: { id: c.userId!, username: c.username }, expiresAt });
+    else this.track(this.cluster.send({ k: "room_invite", from: this.cluster.nodeId, to: targetId, code: room.code, name: room.settings.name, inviter: { id: c.userId!, username: c.username }, expiresAt }), "convite de sala");
   }
 
   /** Arsenal na sala: o escolhido em Jogar, filtrado pelas categorias liberadas (completa com armas permitidas). */
@@ -1019,13 +1293,6 @@ export class GameServer {
     this.log.info(`[game] sala ${room.code}: partida ${match.id} (${settings.mode}, ${settings.map}) iniciada`);
   }
 
-  private queueOf(mode: QueueMode, ranked: boolean) {
-    const key = queueKey(mode, ranked);
-    let q = this.queues.get(key);
-    if (!q) this.queues.set(key, (q = []));
-    return q;
-  }
-
   private resolveLoadout(codes: string[]): WeaponStats[] | null {
     const unique = [...new Set(codes)];
     const loadout = unique.map((code) => this.weapons.get(code)).filter((w): w is WeaponStats => !!w);
@@ -1071,11 +1338,11 @@ export class GameServer {
       }
     }
 
-    const entries: QueueEntry[] = [];
+    const entries: TicketEntry[] = [];
     for (const m of members) {
       // Os outros membros usam o arsenal que escolheram na tela Jogar (ou o padrão).
       const lo = m === c ? loadout : (this.resolveLoadout(m.loadout ?? DEFAULT_LOADOUT) ?? this.resolveLoadout(DEFAULT_LOADOUT) ?? loadout);
-      entries.push({ client: m, loadout: lo, cosmetics: await this.cosmeticsFor(m, lo) });
+      entries.push({ userId: m.userId!, username: m.username, color: m.color, characterId: m.characterId, character: m.character, loadout: lo.map((w) => w.code), cosmetics: await this.cosmeticsFor(m, lo) });
     }
     let mmr = 0;
     if (ranked) {
@@ -1111,101 +1378,161 @@ export class GameServer {
     if (expected.join() !== current.join() || members.some((m) => this.clients.get(m.userId!) !== m || (m.match && !m.match.isEnded))) return;
 
     for (const m of members) this.dequeue(m);
-    const ticket: QueueTicket = { entries, since: Date.now(), mmr };
+    const key = queueKey(mode, ranked);
+    const ticket: Ticket = { id: randomUUID(), node: this.cluster.nodeId, entries, since: Date.now(), mmr };
+    this.localTickets.set(ticket.id, { key, mode, ranked, since: ticket.since, userIds: members.map((m) => m.userId!) });
     for (const m of members) {
-      m.queued = { mode, ranked };
+      m.queued = { mode, ranked, ticketId: ticket.id };
       this.updatePresence(m);
     }
-    this.queueOf(mode, ranked).push(ticket);
-    this.tryMatch(mode, ranked);
-    this.broadcastQueue(mode, ranked);
+    await this.cluster.queueAdd(key, ticket);
+    if (this.cluster.multiNode) void this.cluster.send({ k: "queue_changed", from: this.cluster.nodeId, key }).catch(() => {});
+    await this.tryMatch(mode, ranked);
+    await this.broadcastQueue(mode, ranked);
   }
 
   /** Tira da fila o bilhete inteiro de quem pediu (se é um grupo, o grupo todo sai). */
   private dequeue(c: Client) {
     if (!c.queued) return;
-    const { mode, ranked } = c.queued;
-    const key = queueKey(mode, ranked);
-    const q = this.queueOf(mode, ranked);
-    const ticket = q.find((t) => t.entries.some((e) => e.client === c));
-    this.queues.set(key, q.filter((t) => t !== ticket));
+    const { mode, ranked, ticketId } = c.queued;
+    const local = this.localTickets.get(ticketId);
+    this.localTickets.delete(ticketId);
     c.queued = null;
     this.updatePresence(c);
-    for (const e of ticket?.entries ?? []) {
-      if (e.client === c) continue;
-      e.client.queued = null;
-      this.send(e.client, { t: "queue", state: "idle" });
-      this.updatePresence(e.client);
+    for (const id of local?.userIds ?? []) {
+      const m = this.clients.get(id);
+      if (!m || m === c || m.queued?.ticketId !== ticketId) continue;
+      m.queued = null;
+      this.send(m, { t: "queue", state: "idle" });
+      this.updatePresence(m);
     }
-    this.broadcastQueue(mode, ranked);
+    this.track(
+      this.cluster.queueRemove(queueKey(mode, ranked), ticketId).then(() => this.broadcastQueue(mode, ranked)),
+      "saída da fila",
+    );
   }
 
-  private broadcastQueue(mode: QueueMode, ranked: boolean) {
-    const q = this.queueOf(mode, ranked);
-    const needed = MODES[mode].teamSize * 2;
-    const inQueue = q.reduce((n, t) => n + t.entries.length, 0);
-    for (const t of q) for (const e of t.entries) this.send(e.client, { t: "queue", state: "searching", mode, ranked, inQueue, needed, since: t.since });
-  }
-
-  /** Reavalia as filas ranqueadas (exposto para testes; em produção roda a cada segundo). */
-  matchmakingTick(now = Date.now()) {
-    for (const mode of Object.keys(MODES) as QueueMode[]) this.tryMatch(mode, true, now);
-  }
-
-  private tryMatch(mode: QueueMode, ranked: boolean, now = Date.now()): void {
-    const teamSize = MODES[mode].teamSize;
+  /** Manda para quem está na fila deste nó quantas pessoas há na fila (de todos os nós). */
+  private async broadcastQueue(mode: QueueMode, ranked: boolean) {
     const key = queueKey(mode, ranked);
-    for (;;) {
-      const q = this.queueOf(mode, ranked);
-      let teams: [QueueEntry[], QueueEntry[]];
-      let used: Set<QueueTicket>;
-      if (ranked) {
-        // Ranqueada (sempre individual): MMR próximo (a janela abre com a espera) e equipes balanceadas pela soma de MMR.
-        if (q.length < teamSize * 2) return;
-        const picked = pickMatchGroup(q.map((t) => ({ id: t.entries[0]!.client.userId!, mmr: t.mmr, waitedMs: now - t.since })), teamSize * 2);
-        if (!picked) return;
-        const ids = new Set(picked.map((p) => p.id));
-        used = new Set(q.filter((t) => ids.has(t.entries[0]!.client.userId!)));
-        const group = [...used].map((t) => ({ ...t.entries[0]!, mmr: t.mmr }));
-        const [a, b] = balanceTeams(group);
-        teams = [a, b];
-      } else {
-        // Casual: ordem de chegada, sem separar grupos.
-        const packed = packParties(q.map((t) => t.entries.length), teamSize);
-        if (!packed) return;
-        teams = [packed[0].flatMap((i) => q[i]!.entries), packed[1].flatMap((i) => q[i]!.entries)];
-        used = new Set([...packed[0], ...packed[1]].map((i) => q[i]!));
+    const mine = [...this.localTickets.values()].filter((t) => t.key === key);
+    if (!mine.length) return;
+    const all = await this.cluster.queueAll(key);
+    const needed = MODES[mode].teamSize * 2;
+    const inQueue = all.reduce((n, t) => n + t.entries.length, 0);
+    for (const t of mine)
+      for (const id of t.userIds) {
+        const c = this.clients.get(id);
+        if (c?.queued && this.localTickets.has(c.queued.ticketId) && c.queued.ticketId && queueKey(c.queued.mode, c.queued.ranked) === key)
+          this.send(c, { t: "queue", state: "searching", mode, ranked, inQueue, needed, since: t.since });
       }
-      this.queues.set(key, q.filter((t) => !used.has(t)));
-      this.startMatch(mode, ranked, teams);
-      this.broadcastQueue(mode, ranked);
+  }
+
+  /** Reavalia as filas (exposto para testes). Ranqueada: a janela de MMR abre com a espera. Com vários nós, também casual. */
+  async matchmakingTick(now = Date.now()) {
+    for (const mode of Object.keys(MODES) as QueueMode[]) {
+      await this.tryMatch(mode, true, now);
+      if (this.cluster.multiNode) await this.tryMatch(mode, false, now);
     }
   }
 
-  private startMatch(mode: QueueMode, ranked: boolean, teams: [QueueEntry[], QueueEntry[]]) {
-    const seat = (e: QueueEntry): MatchSeat => ({ userId: e.client.userId!, username: e.client.username, color: e.client.color, characterId: e.client.characterId, character: e.client.character, loadout: e.loadout, cosmetics: e.cosmetics });
-    const mapCode = this.rotation[this.rotationIndex++ % this.rotation.length]!;
-    const map = MAP_REGISTRY[mapCode]!;
+  private matching = new Set<string>();
+
+  /** Só o líder do cluster forma partidas; os bilhetes saem da fila de forma atômica (todos ou nenhum). */
+  private async tryMatch(mode: QueueMode, ranked: boolean, now = Date.now()): Promise<void> {
+    const key = queueKey(mode, ranked);
+    if (this.matching.has(key)) return;
+    this.matching.add(key);
+    try {
+      if (!(await this.cluster.isLeader())) return;
+      const teamSize = MODES[mode].teamSize;
+      for (let guard = 0; guard < 50; guard++) {
+        const q = await this.cluster.queueAll(key);
+        let teams: [TicketEntry[], TicketEntry[]];
+        let used: Ticket[];
+        if (ranked) {
+          // Ranqueada (sempre individual): MMR próximo (a janela abre com a espera) e equipes balanceadas pela soma de MMR.
+          if (q.length < teamSize * 2) return;
+          const picked = pickMatchGroup(q.map((t) => ({ id: t.entries[0]!.userId, mmr: t.mmr, waitedMs: now - t.since })), teamSize * 2);
+          if (!picked) return;
+          const ids = new Set(picked.map((p) => p.id));
+          used = q.filter((t) => ids.has(t.entries[0]!.userId));
+          const [a, b] = balanceTeams(used.map((t) => ({ ...t.entries[0]!, mmr: t.mmr })));
+          teams = [a.map(({ mmr: _m, ...e }) => e), b.map(({ mmr: _m, ...e }) => e)];
+        } else {
+          // Casual: ordem de chegada, sem separar grupos.
+          const packed = packParties(q.map((t) => t.entries.length), teamSize);
+          if (!packed) return;
+          teams = [packed[0].flatMap((i) => q[i]!.entries), packed[1].flatMap((i) => q[i]!.entries)];
+          used = [...packed[0], ...packed[1]].map((i) => q[i]!);
+        }
+        // Outro processo (ou a saída de alguém) pegou um bilhete no meio do caminho: lê a fila de novo.
+        if (!(await this.cluster.queueTake(key, used.map((t) => t.id)))) continue;
+        const mapCode = this.rotation[this.rotationIndex++ % this.rotation.length]!;
+        const spec: MatchSpec = { id: randomUUID(), mode, ranked, mapCode, seed: randomInt(1, 2 ** 31), teams };
+        const node = await this.pickNode(used);
+        if (node === this.cluster.nodeId) this.createMatch(spec);
+        else await this.cluster.send({ k: "match_create", from: this.cluster.nodeId, node, spec });
+      }
+    } finally {
+      this.matching.delete(key);
+    }
+  }
+
+  /** A partida vai para o nó com mais jogadores dela (menos gente precisa trocar de nó); empate: o menos carregado. */
+  private async pickNode(tickets: Ticket[]): Promise<string> {
+    if (!this.cluster.multiNode) return this.cluster.nodeId;
+    const nodes = await this.cluster.nodes();
+    const load = new Map(nodes.map((n) => [n.id, n.load]));
+    const count = new Map<string, number>();
+    // Grupos pesam mais: o grupo vive no nó dele e, se os membros saíssem de lá, o grupo se desfaria.
+    for (const t of tickets) if (load.has(t.node) || t.node === this.cluster.nodeId) count.set(t.node, (count.get(t.node) ?? 0) + t.entries.length + (t.entries.length > 1 ? 100 : 0));
+    const best = [...count.entries()].sort((a, b) => b[1] - a[1] || (load.get(a[0]) ?? 0) - (load.get(b[0]) ?? 0))[0];
+    return best?.[0] ?? this.cluster.nodeId;
+  }
+
+  /** Cria a partida neste nó. Quem está conectado em outro nó é mandado para cá. */
+  private createMatch(spec: MatchSpec) {
+    const seat = (e: TicketEntry): MatchSeat => {
+      const loadout = this.resolveLoadout(e.loadout) ?? this.resolveLoadout(DEFAULT_LOADOUT)!;
+      return { userId: e.userId, username: e.username, color: e.color, characterId: e.characterId, character: e.character, loadout, cosmetics: e.cosmetics };
+    };
+    const map = MAP_REGISTRY[spec.mapCode]!;
     const match = new Match({
-      id: randomUUID(),
-      mode,
-      mapCode,
+      id: spec.id,
+      mode: spec.mode,
+      mapCode: spec.mapCode,
       map,
-      ranked,
-      teams: [teams[0].map(seat), teams[1].map(seat)],
-      seed: randomInt(1, 2 ** 31),
+      ranked: spec.ranked,
+      teams: [spec.teams[0].map(seat), spec.teams[1].map(seat)],
+      seed: spec.seed,
       onEnd: (r) => this.onMatchEnd(match, r),
     });
     this.matches.set(match.id, match);
     this.metrics.matchesStarted.inc({ mode: match.mode });
-    const all = [...teams[0], ...teams[1]];
+    const all = [...spec.teams[0], ...spec.teams[1]];
     for (const e of all) {
-      e.client.queued = null;
-      e.client.match = match;
-      match.attach(e.client.userId!, this.connFor(e.client));
-      this.updatePresence(e.client);
+      this.track(this.cluster.setHome(e.userId), "casa do jogador");
+      const c = this.clients.get(e.userId);
+      if (c) {
+        this.clearTicketOf(c);
+        c.match = match;
+        match.attach(e.userId, this.connFor(c));
+        this.updatePresence(c);
+      } else {
+        // Ainda não está aqui: conta como desconectado (prazo normal de volta) e é chamado para este nó.
+        match.detach(e.userId);
+        this.track(this.cluster.send({ k: "redirect", from: this.cluster.nodeId, userId: e.userId, node: this.cluster.nodeId }), "redirecionamento");
+      }
     }
-    this.log.info(`[game] partida ${match.id} (${mode}${ranked ? ", ranqueada" : ""}) criada: ${all.map((e) => e.client.username).join(", ")}`);
+    this.log.info(`[game] partida ${match.id} (${spec.mode}${spec.ranked ? ", ranqueada" : ""}) criada: ${all.map((e) => e.username).join(", ")}`);
+  }
+
+  /** O bilhete virou partida: a pessoa sai da fila sem mexer no cluster (o bilhete já saiu de lá). */
+  private clearTicketOf(c: Client) {
+    if (!c.queued) return;
+    this.localTickets.delete(c.queued.ticketId);
+    c.queued = null;
   }
 
   private onClose(c: Client) {
@@ -1220,18 +1547,15 @@ export class GameServer {
     }
     if (this.clients.get(userId) !== c) return;
     this.clients.delete(userId);
-    this.updatePresence(c, true, "offline");
+    this.track(this.cluster.clearLocation(userId), "localização");
+    // Mandado para outro nó: lá ele reaparece; não pisca "offline" para os amigos.
+    if (!c.redirecting) this.updatePresence(c, true, "offline");
     void this.opts.prisma.user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } }).catch(() => {});
     // No grupo, quem cai tem um prazo para voltar (recarregar a página não desfaz o grupo).
     const party = this.parties.of(userId);
     if (party) {
       this.broadcastParty(party);
-      const t = setTimeout(() => {
-        this.partyGrace.delete(userId);
-        if (!this.clients.has(userId)) this.partyLeave(userId);
-      }, this.opts.partyGraceMs ?? 60_000);
-      t.unref();
-      this.partyGrace.set(userId, t);
+      this.startPartyGrace(userId);
     }
     const room = this.rooms.of(userId);
     if (room) {
@@ -1242,6 +1566,10 @@ export class GameServer {
 
   private onMatchEnd(match: Match, r: MatchResult) {
     this.metrics.matchesEnded.inc({ mode: match.mode });
+    // Depois que a partida sai da lista, quem não tem grupo nem sala aqui deixa de ter "casa" neste nó.
+    setTimeout(() => {
+      for (const p of match.players) this.syncHome(p.userId);
+    }, 0);
     for (const c of this.clients.values())
       if (c.match === match) {
         c.match = null;

@@ -163,11 +163,11 @@ describe("fila ranqueada", () => {
     ca.send({ t: "queue", mode: "1v1", loadout: [RIFLE], ranked: true });
     cb.send({ t: "queue", mode: "1v1", loadout: [RIFLE], ranked: true });
     await cb.waitFor("queue", (m) => m.inQueue === 2);
-    gs.matchmakingTick();
+    await gs.matchmakingTick();
     expect(gs.matches.size).toBe(0);
-    gs.matchmakingTick(Date.now() + 10_000); // janela de 350: ainda não
+    await gs.matchmakingTick(Date.now() + 10_000); // janela de 350: ainda não
     expect(gs.matches.size).toBe(0);
-    gs.matchmakingTick(Date.now() + 20_000); // janela de 600: forma a partida
+    await gs.matchmakingTick(Date.now() + 20_000); // janela de 600: forma a partida
     expect((await ca.waitFor("match")).info.ranked).toBe(true);
     ca.close();
     cb.close();
