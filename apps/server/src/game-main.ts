@@ -3,6 +3,7 @@ import { loadConfig } from "./config/env.js";
 import { GameServer } from "./game/server.js";
 import { RedisSocialBus } from "./modules/social/bus.js";
 import { PasswordHasher } from "./lib/password.js";
+import { pruneReplays } from "./modules/matches/replay.js";
 
 /** Processo separado do servidor de jogo (escala independente da API HTTP). */
 const config = loadConfig();
@@ -14,7 +15,14 @@ const server = new GameServer({ prisma, jwtSecret: config.JWT_ACCESS_SECRET, all
 const port = await server.start(config.GAME_PORT, config.API_HOST);
 console.info(`[game] servidor de jogo ouvindo em :${port} (ws /game)`);
 
+// Replays vencidos (mais de 30 dias) saem do banco ao subir e a cada 6 horas.
+const prune = () => pruneReplays(prisma).then((n) => n && console.info(`[game] ${n} replays vencidos apagados`)).catch((e) => console.error("[game] limpeza de replays", e));
+void prune();
+const pruneTimer = setInterval(() => void prune(), 6 * 3600_000);
+pruneTimer.unref();
+
 const shutdown = async () => {
+  clearInterval(pruneTimer);
   await server.stop();
   await bus.close();
   await prisma.$disconnect();

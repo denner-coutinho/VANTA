@@ -1,4 +1,7 @@
 import {
+  KILLCAM_MS,
+  REPLAY_EVERY_SNAPSHOTS,
+  REPLAY_VERSION,
   CATEGORY_TUNING,
   COMMAND_SLACK,
   CollisionWorld,
@@ -36,6 +39,8 @@ import {
   type CustomMatchRules,
   type SpecFrame,
   type WireSpec,
+  type ReplayFile,
+  type MatchPlayerInfo,
   SPECTATOR_DELAY_MS,
 } from "@vanta/shared";
 
@@ -110,6 +115,8 @@ export interface MatchResult {
   roomId: string | null;
   players: Array<PlayerMatchStats & { characterId: string | null }>;
   events: Array<{ tick: number; round: number; type: string; actorId?: string; targetId?: string; data: object }>;
+  /** Replay completo (quadros a 15 Hz + eventos públicos). Ausente em testes que montam o resultado à mão. */
+  replay?: ReplayFile;
 }
 
 export interface MatchOptions {
@@ -151,6 +158,13 @@ export class Match {
   round = 0;
   score: [number, number] = [0, 0];
   private events: MatchEventWire[] = [];
+  /** Replay: um quadro a cada REPLAY_EVERY_SNAPSHOTS snapshots (fora do aquecimento); eventos acumulados entre quadros. */
+  private replayFrames: SpecFrame[] = [];
+  private replayEv: MatchEventWire[] = [];
+  private snapCount = 0;
+  /** Últimos segundos de posições (para a kill cam) e kill cams esperando o próximo snapshot. */
+  private recent: Array<{ tick: number; players: WireSpec[] }> = [];
+  private pendingKillcams: Array<{ killer: string; victim: string; weapon: string; head: boolean; tick: number }> = [];
   private log: MatchResult["events"] = [];
   private startedAt = new Date();
   private endedAt: Date | null = null;
@@ -261,12 +275,16 @@ export class Match {
         mode: this.mode,
         map: this.opts.mapCode,
         roundsToWin: this.roundsToWin,
-        players: this.players.map((p) => ({ id: p.userId, username: p.username, team: p.team, color: p.color, character: p.character, loadout: p.loadout.map((w) => w.code), connected: !!p.conn && !p.abandoned, cosmetics: p.cosmetics })),
+        players: this.playerInfos(),
         delayMs: this.specDelayTicks * TICK_MS,
         rules: this.rules,
       },
     });
     return true;
+  }
+
+  private playerInfos(): MatchPlayerInfo[] {
+    return this.players.map((p) => ({ id: p.userId, username: p.username, team: p.team, color: p.color, character: p.character, loadout: p.loadout.map((w) => w.code), connected: !!p.conn && !p.abandoned, cosmetics: p.cosmetics }));
   }
 
   removeSpectator(userId: string) {
@@ -473,6 +491,7 @@ export class Match {
       }
     }
     this.events.push({ k: "kill", killer: killer.userId, victim: victim.userId, weapon: weapon.name, head });
+    if (killer !== victim) this.pendingKillcams.push({ killer: killer.userId, victim: victim.userId, weapon: weapon.name, head, tick: this.tick });
     this.log.push({ tick: this.tick, round: this.round, type: "kill", actorId: killer.userId, targetId: victim.userId, data: { weapon: weapon.code, head, ...(teamKill ? { teamKill: true } : {}) } });
   }
 
@@ -573,6 +592,18 @@ export class Match {
       roomId: this.roomId,
       players: stats.map((s) => ({ ...s, characterId: this.player(s.id)!.characterId })),
       events: this.log,
+      replay: {
+        v: REPLAY_VERSION,
+        matchId: this.id,
+        mode: this.mode,
+        map: this.opts.mapCode,
+        roundsToWin: this.roundsToWin,
+        rules: this.rules,
+        players: this.playerInfos().map((p) => ({ ...p, connected: true })),
+        startedAt: this.startedAt.toISOString(),
+        endedAt: this.endedAt.toISOString(),
+        frames: this.replayFrames,
+      },
     });
   }
 
@@ -629,16 +660,47 @@ export class Match {
       p.conn.send({ t: "snap", tick: this.tick, phase: this.phase, phaseEndsIn, round: this.round, score: [...this.score], you: this.selfWire(p), others, kd, ev: [...this.events, ...p.privateEvents], ...(this.spectators.size ? { spec: this.spectators.size } : {}) });
       p.privateEvents = [];
     }
+    // Visão completa (posição, mira e vida de todos): só sai do servidor atrasada (espectador), gravada (replay)
+    // ou recortada para a kill cam (só abatedor e vítima, até o abate).
+    const players: WireSpec[] = this.players.map((o) => {
+      const m = o.c.move;
+      return [o.userId, r3n(m.pos.x), r3n(m.pos.y), r3n(m.pos.z), r3n(o.lastYaw), r3n(o.lastPitch), r3n(m.crouchBlend), o.c.alive ? 1 : 0, o.c.slot, Math.max(0, Math.round(o.c.health)), animFlags(o.c), o.team];
+    });
     if (this.opts.custom) {
-      // Espectador vê todos (posição e vida), mas atrasado: o quadro entra na fila e só sai depois do atraso.
-      const players: WireSpec[] = this.players.map((o) => {
-        const m = o.c.move;
-        return [o.userId, r3n(m.pos.x), r3n(m.pos.y), r3n(m.pos.z), r3n(o.lastYaw), r3n(o.lastPitch), r3n(m.crouchBlend), o.c.alive ? 1 : 0, o.c.slot, Math.max(0, Math.round(o.c.health)), animFlags(o.c), o.team];
-      });
       this.specQueue.push({ t: "spec", tick: this.tick, phase: this.phase, phaseEndsIn, round: this.round, score: [...this.score], players, kd, ev: [...this.events] });
       this.flushSpectators(this.tick);
     }
+    this.record(players, kd, phaseEndsIn);
     this.events = [];
+  }
+
+  private record(players: WireSpec[], kd: Array<[string, number, number, number]>, phaseEndsIn: number) {
+    if (this.phase !== "warmup") {
+      // Disparos: só a primeira ponta (rastro), para o arquivo não crescer à toa.
+      for (const ev of this.events) this.replayEv.push(ev.k === "shot" ? { ...ev, ends: ev.ends.slice(0, 1) } : ev);
+      if (++this.snapCount % REPLAY_EVERY_SNAPSHOTS === 0 || this.phase === "ended" || this.replayEv.some((e) => e.k === "kill" || e.k === "round_end")) {
+        const frame: SpecFrame = { t: "spec", tick: this.tick, phase: this.phase, phaseEndsIn, round: this.round, score: [...this.score], players, kd, ev: this.replayEv };
+        const last = this.replayFrames[this.replayFrames.length - 1];
+        // Dois envios no mesmo tick (ex.: fim da partida): junta no mesmo quadro.
+        if (last?.tick === this.tick) this.replayFrames[this.replayFrames.length - 1] = { ...frame, ev: [...last.ev, ...frame.ev] };
+        else this.replayFrames.push(frame);
+        this.replayEv = [];
+      }
+    }
+    if (this.recent[this.recent.length - 1]?.tick === this.tick) this.recent.pop();
+    this.recent.push({ tick: this.tick, players });
+    const keep = this.tick - (KILLCAM_MS + 500) / TICK_MS;
+    while (this.recent.length && this.recent[0]!.tick < keep) this.recent.shift();
+    if (!this.pendingKillcams.length) return;
+    for (const k of this.pendingKillcams.splice(0)) {
+      const victim = this.player(k.victim);
+      if (!victim?.conn) continue;
+      const from = k.tick - KILLCAM_MS / TICK_MS;
+      const frames = this.recent
+        .filter((f) => f.tick >= from && f.tick <= this.tick)
+        .map((f) => ({ tick: f.tick, players: f.players.filter((p) => p[0] === k.killer || p[0] === k.victim) }));
+      victim.conn.send({ t: "killcam", killer: k.killer, victim: k.victim, weapon: k.weapon, head: k.head, frames });
+    }
   }
 
   private flushSpectators(now: number) {

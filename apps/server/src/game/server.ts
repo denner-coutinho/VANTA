@@ -41,6 +41,7 @@ import { RoomManager, type Room, type RoomError } from "./rooms.js";
 import { PasswordHasher } from "../lib/password.js";
 import { applyMatchProgression } from "../modules/progression/progression.service.js";
 import { applyClanResults } from "../modules/clans/clans.service.js";
+import { saveReplay } from "../modules/matches/replay.js";
 
 export interface GameServerOptions {
   prisma: PrismaClient;
@@ -1280,6 +1281,8 @@ export class GameServer {
       const c = this.clients.get(u.userId);
       if (c) this.send(c, u.wire);
     }
+    // Replay fora da transação principal (arquivo grande): se falhar, a partida continua gravada, só sem replay.
+    if (r.replay) await saveReplay(db, r.replay).catch((e) => this.log.error("replay não gravado", r.matchId, e));
   }
 
   /** Banimento/suspensão/troca de senha derrubam a conexão de jogo em até `recheckMs`. */
