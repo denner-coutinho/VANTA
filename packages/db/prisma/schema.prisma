@@ -1093,6 +1093,7 @@ model Notification {
 }
 
 /// Log de auditoria: toda ação administrativa é registrada (somente-inserção).
+/// Somente inserção: um gatilho no banco recusa UPDATE e DELETE (migração 20261114160800).
 model AdminAuditLog {
   id         String   @id @default(cuid())
   actorId    String
@@ -1107,4 +1108,6 @@ model AdminAuditLog {
 
   @@index([actorId, createdAt])
   @@index([targetType, targetId])
+  @@index([action, createdAt])
+  @@index([createdAt])
 }

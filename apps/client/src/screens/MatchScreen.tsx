@@ -6,6 +6,7 @@ import { gameSocket, type SocketStatus } from "../net/GameSocket";
 import { OnlineRuntime, TEAM_COLORS, type OnlineEvent, type OnlineHud } from "../game/OnlineRuntime";
 import type { GameSettings } from "../game/GameRuntime";
 import { loadSettings, saveSettings, type LocalSettings } from "./SettingsPanel";
+import { matchesBind } from "../game/input";
 import { Button } from "../components/ui";
 import { RankEmblem } from "../components/RankEmblem";
 import { useAuth } from "../auth/AuthContext";
@@ -170,15 +171,15 @@ export function MatchScreen() {
 
   useEffect(() => rt.current?.setSettings(toGame(settings)), [settings]);
 
-  // Placar no Tab.
+  // Placar na tecla configurada (Tab por padrão).
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.code === "Tab") {
+      if (matchesBind("scoreboard", e.code)) {
         e.preventDefault();
         setScoreboard(true);
       }
     };
-    const up = (e: KeyboardEvent) => e.code === "Tab" && setScoreboard(false);
+    const up = (e: KeyboardEvent) => matchesBind("scoreboard", e.code) && setScoreboard(false);
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     return () => {
@@ -205,7 +206,7 @@ export function MatchScreen() {
   useEffect(() => {
     if (!killcamOn) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === "Space") rt.current?.skipKillcam();
+      if (e.code === "Space" || matchesBind("jump", e.code)) rt.current?.skipKillcam();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

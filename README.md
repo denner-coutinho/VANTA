@@ -63,6 +63,7 @@ node scripts/e2e-rooms.mjs            # Fase 7: três navegadores (sala com senh
 node scripts/e2e-progression.mjs      # Fase 7: partida real → XP no resultado → missão resgatada → conquista → histórico → título
 node scripts/e2e-clans.mjs            # Fase 7: clã (criar, convidar, cargos, desfazer), perfil público, cartão e rankings
 node scripts/e2e-replay.mjs           # Fase 7: kill cam com abate real, MVP, replay (pausa, linha do tempo, velocidade) e download
+node scripts/e2e-admin.mjs            # Fase 7: painel administrativo (moderador, superadmin, auditoria) e teclas remapeáveis
 ```
 
 O teste E2E precisa do Playwright: `npm i -g playwright && npx playwright install chromium`.

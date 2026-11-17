@@ -560,3 +560,35 @@ textarea.input { height: auto; padding: 10px 12px; resize: vertical; }
 .mvp-stats b { font: 700 22px var(--f-display); }
 .mvp-stats span { font-size: 11px; color: var(--c-dim); text-transform: uppercase; letter-spacing: .1em; }
 @keyframes mvp-in { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
+
+/* ───────── Teclas remapeáveis (Fase 7, parte 5) ───────── */
+.keybinds-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.keybinds-head .label { margin-bottom: 0; }
+.keybind-group { margin-top: 12px; }
+.keybind-group > .label { opacity: 0.7; margin-bottom: 4px; }
+.keybind-row { display: grid; grid-template-columns: 1fr 112px 112px; gap: 6px; align-items: center; padding: 3px 0; font-size: 13px; }
+.keybind-slot { height: 30px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); color: inherit; font: inherit; font-size: 12px; cursor: pointer; clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.keybind-slot:hover { border-color: var(--accent, #287BFF); }
+.keybind-slot.empty { opacity: 0.5; }
+.keybind-slot.listening { border-color: var(--warning, #FFB020); color: var(--warning, #FFB020); animation: kb-pulse 0.9s ease-in-out infinite; }
+.keybind-notice { color: var(--warning, #FFB020); }
+@keyframes kb-pulse { 50% { background: rgba(255,176,32,0.12); } }
+@media (max-width: 520px) { .keybind-row { grid-template-columns: 1fr 88px 88px; } }
+
+/* ───────── Painel administrativo (Fase 7, parte 5) ───────── */
+.admin-screen .play-wrap { max-width: 1100px; }
+.admin-screen .play-head { display: flex; align-items: center; justify-content: space-between; }
+.admin-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.admin-tile { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.admin-tile strong { font-size: 28px; font-family: var(--font-display, inherit); }
+.admin-detail { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+.admin-detail > .btn { align-self: flex-start; }
+.admin-detail h2 { margin: 0 0 6px; font-size: 20px; }
+.admin-quote { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--accent, #287BFF); background: rgba(255,255,255,0.03); }
+.admin-chat { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
+.admin-chat li { padding: 4px 8px; background: rgba(255,59,107,0.08); }
+.punish-fields { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.punish-fields .input { flex: 1; min-width: 160px; }
+.punish-fields .error { flex-basis: 100%; margin: 0; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent, #287BFF); font: inherit; cursor: pointer; text-decoration: underline; }
+.admin-screen textarea.input { width: 100%; resize: vertical; margin-bottom: 8px; }

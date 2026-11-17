@@ -193,7 +193,7 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **E2E de treino ajustado**: ele segurava W por 1,2 s fixos e falhou duas vezes andando 1,44 m. Causa: com o renderizador por software o quadro passa de 100 ms e o jogo simula no máximo 0,1 s por quadro, então o tempo real não vira distância. Agora o teste segura W até andar 1,5 m (até 8 s) e também confere que não desviou para o lado. Numa máquina com GPU isso não acontece.
 - **Salas personalizadas** apareciam no menu como "Fase 3" mas não foram feitas na Fase 3. O menu agora indica Fase 7, junto com os sistemas sociais.
 
-## Fase 7 — Sistemas adicionais 🔄 (em andamento, dividida em 5 partes)
+## Fase 7 — Sistemas adicionais ✅ (17/11/2026, dividida em 5 partes)
 
 ### Parte 1 — Social ✅ (15/11/2026)
 
@@ -312,8 +312,26 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **A apresentação do MVP abre um segundo contexto WebGL** em cima da partida; em máquinas fracas pode pesar um pouco no fim da partida.
 - **O E2E testa uma partida 1v1.** Em 2v2/3v3 a gravação é a mesma e está coberta pelo teste do servidor.
 
-### Parte 5 ⏳
-Painel administrativo (níveis de permissão e registro de auditoria) e teclas remapeáveis.
+### Parte 5 — Painel administrativo e teclas remapeáveis ✅ (17/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **Níveis de permissão**: moderador (denúncias, ficha do jogador, silêncio até 7 dias, suspensão até 72 h, revogar o que ele pode aplicar), administrador (tudo do moderador + e-mail completo, banimento do ranqueado, suspensão até 1 ano, banimento permanente, concessão de item, ajuste de saldo, temporadas, auditoria completa) e superadmin (tudo + mudar cargos). Ninguém age sobre a própria conta nem sobre cargo igual ou maior. Superadmin só é criado pelo terminal (`create-admin`) | ✅ | `shared/admin.test.ts` + `test/admin.test.ts` + E2E |
+| **Denúncias**: fila de pendentes, prova com o chat que o denunciado escreveu na partida (gravado pelo servidor), denúncias anteriores, punições em vigor. Fechar com "ação tomada" (com punição na mesma transação) ou "arquivada"; a denúncia é travada para dois moderadores não tratarem a mesma | ✅ | Teste + E2E + captura 62 |
+| **Punição com efeito imediato**: suspensão e banimento derrubam todas as sessões e a conexão de jogo na hora (aviso pelo Redis ao servidor de jogo); o login mostra o prazo e o motivo. Silêncio vale na hora no chat. **Banimento do ranqueado agora barra a fila ranqueada** (antes existia no banco, mas não era aplicado). Revogar devolve a conta se não houver outra punição | ✅ | Testes + E2E (o jogador sai do jogo em segundos) |
+| **Cargos**: superadmin promove a moderador/admin ou rebaixa; o token antigo deixa de valer | ✅ | Teste + E2E |
+| **Registro de auditoria**: toda ação do painel grava quem, quando, IP, alvo, antes e depois, na mesma transação. O banco recusa alterar ou apagar linhas (gatilho). Abrir a ficha com e-mail completo também fica registrado. Moderador vê só as próprias ações e sem IP | ✅ | Teste + E2E + captura 63 |
+| **Visão geral**: contas, novas em 24 h, partidas em 24 h, denúncias pendentes, punições em vigor e últimas ações | ✅ | E2E + captura 61 |
+| **Teclas remapeáveis**: 18 ações (movimento, combate, placar, chat), até 2 teclas cada, teclado ou botões do mouse. Trocar uma tecla tira ela da outra ação com aviso; Esc cancela, Backspace limpa, "restaurar padrão". Nomes das teclas no layout do teclado (Chrome/Edge). **Salvas na conta** (validadas no servidor) junto com sensibilidade e campo de visão: valem em outro computador | ✅ | `shared/admin.test.ts` + teste da API + E2E (no treino, W para de andar e a nova tecla anda) + captura 64 |
+
+**Testes:** 142 no servidor (9 novos), 102 no shared (8 novos), 11 no cliente + **E2E do painel e das teclas com navegadores reais** (`scripts/e2e-admin.mjs`, 14 etapas: jogador sem acesso, moderador trata denúncia com prova e só vê as opções do cargo, e-mail mascarado, superadmin suspende e o jogador cai, login com motivo, revogação, cargo, auditoria e recusa de DELETE no banco, troca de teclas com conflito, tecla nova no treino e teclas da conta num navegador novo).
+
+#### Limites honestos da parte 5
+- **No E2E, os cargos de moderador e superadmin e a denúncia são criados direto no banco.** Dar cargo pelo terminal é o caminho de verdade para o primeiro superadmin; o envio de denúncia pela interface já é coberto pelo E2E social.
+- **Sem autenticação em dois fatores para cargos administrativos.** Em produção, quem tem cargo deveria usar 2FA; fica para a Fase 8.
+- **As tentativas negadas (403) não vão para o registro de auditoria**, só para o log do servidor.
+- **O espectador e o replay usam teclas fixas** (Q/E troca, F câmera livre, WASD na câmera livre); as teclas remapeáveis valem no jogo e no treino.
+- **Sem painel de conteúdo** (criar armas, mapas ou itens da loja pela interface): isso continua no seed e nas migrações.
 
 ## Fase 8 ⏳
 Finalização (carga, segurança, Docker, CI, deploy).

@@ -1,7 +1,7 @@
 import { equippedCosmetics } from "../economy/store.service.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { levelFromTotalXp, type MeResponse } from "@vanta/shared";
+import { accountSettingsSchema, levelFromTotalXp, sanitizeKeybinds, type AccountSettings, type MeResponse } from "@vanta/shared";
 import { Errors } from "../../lib/errors.js";
 import { toPublicUser } from "../auth/auth.service.js";
 
@@ -51,5 +51,23 @@ export async function meRoutes(app: FastifyInstance) {
     if (!character) throw Errors.notFound("Personagem não encontrado.");
     await app.prisma.userProfile.update({ where: { userId: req.auth.userId }, data: { mainCharacterId: character.id } });
     return { mainCharacterId: character.id };
+  });
+
+  // Configurações levadas entre computadores (teclas, sensibilidade, campo de visão). Validadas aqui.
+  const readSettings = (raw: unknown): AccountSettings => {
+    const parsed = accountSettingsSchema.safeParse(raw ?? {});
+    const s = parsed.success ? parsed.data : {};
+    return { ...s, keybinds: s.keybinds ?? sanitizeKeybinds(null) };
+  };
+  app.get("/me/settings", { preHandler: app.authenticate }, async (req) => {
+    const p = await app.prisma.userProfile.findUnique({ where: { userId: req.auth.userId }, select: { settings: true } });
+    return readSettings(p?.settings);
+  });
+  app.put("/me/settings", { preHandler: app.authenticate, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (req) => {
+    const patch = accountSettingsSchema.parse(req.body);
+    const p = await app.prisma.userProfile.findUnique({ where: { userId: req.auth.userId }, select: { settings: true } });
+    const next = readSettings({ ...readSettings(p?.settings), ...patch });
+    await app.prisma.userProfile.update({ where: { userId: req.auth.userId }, data: { settings: next } });
+    return next;
   });
 }

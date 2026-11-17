@@ -21,6 +21,7 @@ import { economyRoutes } from "./modules/economy/economy.routes.js";
 import { StripeGateway, type PaymentGateway } from "./modules/economy/payments.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
 import { RedisSocialBus, type SocialBus } from "./modules/social/bus.js";
+import { adminRoutes } from "./modules/admin/admin.routes.js";
 import { SocialService } from "./modules/social/social.service.js";
 import { progressionRoutes } from "./modules/progression/progression.routes.js";
 import { socialRoutes } from "./modules/social/social.routes.js";
@@ -125,6 +126,7 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   await app.register(playerRoutes);
   await app.register(matchRoutes);
   await app.register(socialRoutes, { social: new SocialService(prisma, socialBus) });
+  await app.register(adminRoutes, { bus: socialBus });
 
   return app;
 }

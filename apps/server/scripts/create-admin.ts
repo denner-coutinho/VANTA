@@ -1,7 +1,8 @@
 /**
  * Promove uma conta existente a administrador (ou superadmin). Uso:
  *   pnpm --filter @vanta/server create-admin <email> [ADMIN|SUPERADMIN|MODERATOR]
- * Não existe rota HTTP para isso de propósito: só quem tem acesso ao servidor pode promover.
+ * Superadmin só nasce por aqui (só quem tem acesso ao servidor). Depois, o superadmin pode dar
+ * cargo de moderador ou admin pelo painel (/admin), com registro de auditoria.
  */
 import { createPrismaClient } from "@vanta/db";
 

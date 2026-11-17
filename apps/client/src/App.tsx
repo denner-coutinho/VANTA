@@ -19,6 +19,7 @@ import { ProgressScreen } from "./screens/ProgressScreen";
 import { ClanScreen } from "./screens/ClanScreen";
 import { RankingScreen } from "./screens/RankingScreen";
 import { PlayerProfileScreen } from "./screens/PlayerProfileScreen";
+import { AdminScreen } from "./screens/AdminScreen";
 import { ReplayScreen } from "./screens/ReplayScreen";
 import { InviteStack } from "./social/PartyWidget";
 
@@ -60,6 +61,7 @@ export function App() {
       <Route path="/ranking" element={<RequireAuth><RankingScreen /></RequireAuth>} />
       <Route path="/jogador/:username" element={<RequireAuth><PlayerProfileScreen /></RequireAuth>} />
       <Route path="/replay/:matchId" element={<RequireAuth><ReplayScreen /></RequireAuth>} />
+      <Route path="/admin" element={<RequireAuth><AdminScreen /></RequireAuth>} />
       <Route path="/assistir" element={<RequireAuth><SpectateScreen /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

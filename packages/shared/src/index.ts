@@ -6,6 +6,8 @@ export * from "./rooms.js";
 export * from "./validation.js";
 export * from "./progression.js";
 export * from "./identity.js";
+export * from "./admin.js";
+export * from "./keybinds.js";
 export * from "./api-types.js";
 export * from "./i18n/index.js";
 export * from "./game/index.js";
