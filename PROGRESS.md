@@ -370,13 +370,14 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 | **Teste de carga da API** (`pnpm load-api`) e custo do Argon2 | ✅ | 715 req/s com 50 conexões; 42 logins/s por núcleo |
 | **Correção — memória dos replays**: os quadros ficavam como objetos até o fim da partida (~40 MB por partida 3v3 de 20 min) e o gzip final travava o loop de todas as partidas. Agora o replay é compactado em streaming durante a partida | ✅ | Heap com 600 jogadores: 598 → 82 MB; `test/replay-recorder.test.ts` |
 | **Correção — colisão**: a grade montava texto e um `Set` novo em cada consulta | ✅ | Teste contra força bruta nos 5 mapas |
+| **Correção — partida sem fim**: round que acaba no tempo com os times iguais (vivos e vida) empata; se todos empatassem, a partida nunca terminava (o teste longo pegou 20 partidas paradas por 18 minutos). Agora há limite de rounds (2 × rounds para vencer): no limite vence quem tem mais rounds, ou a partida empata | ✅ | `test/match.test.ts` |
 | `RATE_LIMIT_PER_MIN` configurável (padrão 300 por IP) | ✅ | Usado no teste da API |
 | Guia (`docs/LOAD_TEST.md`): como rodar, resultados, alertas sugeridos | ✅ | — |
 
 **Capacidade medida:** um processo de jogo aguenta **~400 jogadores simultâneos** (~65 partidas 3v3) com folga no tick
 de 60 Hz; com 600 ele encosta em um núcleo inteiro. Tabela completa em `docs/LOAD_TEST.md`.
 
-**Testes:** 151 no servidor (6 novos), 103 no shared (1 novo), 11 no cliente.
+**Testes:** 152 no servidor (7 novos), 103 no shared (1 novo), 11 no cliente.
 
 #### Limites honestos da parte 2
 - **Medido na mesma máquina** (gerador de carga, banco e servidor disputando 4 núcleos) e **em rede local**: não mede latência de internet.

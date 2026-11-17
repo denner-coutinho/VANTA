@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANIM_FLAG, KILLCAM_MS, SPECTATOR_DELAY_MS, MAP_REGISTRY, MAX_HEALTH, WEAPON_CATALOG, eyeHeight, weaponStatsFromRow, type MatchEventWire, type PlayerCommand, type ServerMessage, type Vec3 } from "@vanta/shared";
+import { ANIM_FLAG, KILLCAM_MS, maxRounds, SPECTATOR_DELAY_MS, MAP_REGISTRY, MAX_HEALTH, WEAPON_CATALOG, eyeHeight, weaponStatsFromRow, type MatchEventWire, type PlayerCommand, type ServerMessage, type Vec3 } from "@vanta/shared";
 import { Match, type MatchResult, type MatchSeat } from "../src/game/match.js";
 import { decodeReplay } from "../src/game/replay-recorder.js";
 
@@ -305,6 +305,17 @@ describe("partida personalizada (sala)", () => {
     tick(h);
     tick(h);
     expect(events(h, "u1").some((e) => e.k === "round_end" && e.reason === "time")).toBe(true);
+  });
+
+  it("rounds empatados não prendem a partida: no limite de rounds ela termina empatada", () => {
+    // Ninguém atira: todo round acaba no tempo com os dois vivos e vida cheia (empate).
+    const h = setup(1, [RIFLE], { roomId: "r1", roundsToWin: 2, rules: { ...RULES, roundTimeSec: 30 } });
+    for (const p of h.m.players) h.m.setReady(p.userId);
+    for (let i = 0; i < 4 * 40 * 60 && !h.m.isEnded; i++) tick(h);
+    expect(h.m.isEnded).toBe(true);
+    expect(h.m.round).toBe(maxRounds(2));
+    expect(h.results[0]).toMatchObject({ winner: null, score: [0, 0], reason: "score" });
+    expect(events(h, "u1").filter((e) => e.k === "round_end")).toHaveLength(4);
   });
 
   it("sem fogo amigo, tiro no aliado não causa dano; com fogo amigo mata e não conta abate", () => {

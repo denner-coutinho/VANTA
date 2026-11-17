@@ -1,5 +1,6 @@
 import {
   KILLCAM_MS,
+  maxRounds,
   REPLAY_EVERY_SNAPSHOTS,
   REPLAY_VERSION,
   CATEGORY_TUNING,
@@ -536,6 +537,7 @@ export class Match {
       case "round_end":
         if (t >= this.phaseEndsAt) {
           if (this.score[0] >= this.roundsToWin || this.score[1] >= this.roundsToWin) this.endMatch(this.score[0] > this.score[1] ? 0 : 1, "score");
+          else if (this.round >= maxRounds(this.roundsToWin)) this.endMatch(this.score[0] === this.score[1] ? null : this.score[0] > this.score[1] ? 0 : 1, "score");
           else this.startRound();
         }
         break;
