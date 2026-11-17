@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ANIM_FLAG, KILLCAM_MS, SPECTATOR_DELAY_MS, MAP_REGISTRY, MAX_HEALTH, WEAPON_CATALOG, eyeHeight, weaponStatsFromRow, type MatchEventWire, type PlayerCommand, type ServerMessage, type Vec3 } from "@vanta/shared";
 import { Match, type MatchResult, type MatchSeat } from "../src/game/match.js";
+import { decodeReplay } from "../src/game/replay-recorder.js";
 
 const W = (code: string) => weaponStatsFromRow(WEAPON_CATALOG.find((w) => w.code === code)! as unknown as Record<string, unknown>);
 const RIFLE = WEAPON_CATALOG.find((w) => w.category === "ASSAULT_RIFLE")!.code;
@@ -414,7 +415,7 @@ describe("partida personalizada (sala)", () => {
     expect(cam!.frames.length).toBeGreaterThan(30);
   });
 
-  it("replay: quadros de todos os jogadores a ~15 Hz, sem aquecimento, com abates, rounds e fim", () => {
+  it("replay: quadros de todos os jogadores a ~15 Hz, sem aquecimento, com abates, rounds e fim", async () => {
     const h = setup();
     for (let r = 0; r < h.m.roundsToWin; r++) {
       untilLive(h);
@@ -422,7 +423,10 @@ describe("partida personalizada (sala)", () => {
       for (let i = 0; i < 300 && h.m.player("u2")!.c.alive; i++) tick(h, { u1: { ...aimAt(eyeOf(h, "u1"), headOf(h, "u2")), fire: true, aim: true, reload: i % 90 === 89 } });
       for (let i = 0; i < 260 && h.m.phase !== "freeze" && !h.m.isEnded; i++) tick(h);
     }
-    const rep = h.results[0]!.replay!;
+    const pending = h.results[0]!.replay!;
+    const encoded = await pending.recorder.finish(pending.header);
+    const rep = decodeReplay(encoded);
+    expect(encoded.frameCount).toBe(rep.frames.length);
     expect(rep).toMatchObject({ v: 1, matchId: "m1", mode: "1v1", map: "NEON_DISTRICT", roundsToWin: 5 });
     expect(rep.players.map((p) => p.id)).toEqual(["u1", "u2"]);
     const f = rep.frames;

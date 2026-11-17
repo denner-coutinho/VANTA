@@ -98,6 +98,8 @@ docker compose -f docker-compose.prod.yml --env-file deploy/.env.production up -
 Passo a passo, backup, segurança e limites em [docs/DEPLOY.md](docs/DEPLOY.md). A CI (`.github/workflows/ci.yml`)
 roda typecheck, testes, build, auditoria e a pilha de produção em todo PR.
 
+Métricas (Prometheus), teste de carga e capacidade medida em [docs/LOAD_TEST.md](docs/LOAD_TEST.md).
+
 ## Licença dos assets
 
 Todo o conteúdo visual e sonoro atual é original e gerado em código (logo SVG, emblemas das 15 patentes, operador 3D procedural, sons de interface sintetizados via Web Audio). Fontes: Chakra Petch e Barlow (SIL Open Font License), empacotadas localmente.

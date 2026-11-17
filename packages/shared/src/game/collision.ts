@@ -21,40 +21,81 @@ export function playerBox(pos: Vec3, halfWidth: number, height: number): AABB {
  * mesmo com centenas de caixas. Usado pelo movimento e pelos tiros.
  */
 export class CollisionWorld {
-  private cells = new Map<string, number[]>();
+  /** Célula → índices das caixas. Chave numérica (x, z empacotados): sem montar strings a cada consulta. */
+  private cells = new Map<number, number[]>();
+  /** Marca de "já visto" por caixa; trocar o número da consulta zera tudo sem alocar um Set. */
+  private seen: Uint32Array;
+  private stamp = 0;
   constructor(public readonly boxes: AABB[], private readonly cellSize = 4) {
+    this.seen = new Uint32Array(boxes.length);
     boxes.forEach((b, i) => {
-      for (const key of this.keysFor(b)) {
+      this.forCells(b, (key) => {
         let list = this.cells.get(key);
         if (!list) this.cells.set(key, (list = []));
         list.push(i);
-      }
+      });
     });
   }
 
-  private keysFor(b: AABB): string[] {
-    const c = this.cellSize;
-    const keys: string[] = [];
-    for (let x = Math.floor(b.min.x / c); x <= Math.floor(b.max.x / c); x++)
-      for (let z = Math.floor(b.min.z / c); z <= Math.floor(b.max.z / c); z++) keys.push(`${x},${z}`);
-    return keys;
+  private static key(x: number, z: number) {
+    return (x + 32768) * 65536 + (z + 32768);
   }
 
-  /** Caixas que podem tocar a região informada. */
-  query(region: AABB): AABB[] {
-    const seen = new Set<number>();
-    const out: AABB[] = [];
-    for (const key of this.keysFor(region)) {
-      for (const i of this.cells.get(key) ?? []) {
-        if (seen.has(i)) continue;
-        seen.add(i);
-        out.push(this.boxes[i]!);
-      }
+  private forCells(b: AABB, fn: (key: number) => void) {
+    const c = this.cellSize;
+    const x1 = Math.floor(b.max.x / c);
+    const z0 = Math.floor(b.min.z / c);
+    const z1 = Math.floor(b.max.z / c);
+    for (let x = Math.floor(b.min.x / c); x <= x1; x++) for (let z = z0; z <= z1; z++) fn(CollisionWorld.key(x, z));
+  }
+
+  private nextStamp() {
+    if (++this.stamp === 0xffffffff) {
+      this.seen.fill(0);
+      this.stamp = 1;
     }
+    return this.stamp;
+  }
+
+  /** Caixas que podem tocar a região informada (na mesma ordem de sempre: célula a célula, sem repetir). */
+  query(region: AABB): AABB[] {
+    const stamp = this.nextStamp();
+    const out: AABB[] = [];
+    const c = this.cellSize;
+    const x1 = Math.floor(region.max.x / c);
+    const z0 = Math.floor(region.min.z / c);
+    const z1 = Math.floor(region.max.z / c);
+    for (let x = Math.floor(region.min.x / c); x <= x1; x++)
+      for (let z = z0; z <= z1; z++) {
+        const list = this.cells.get(CollisionWorld.key(x, z));
+        if (!list) continue;
+        for (let k = 0; k < list.length; k++) {
+          const i = list[k]!;
+          if (this.seen[i] === stamp) continue;
+          this.seen[i] = stamp;
+          out.push(this.boxes[i]!);
+        }
+      }
     return out;
   }
 
   collides(box: AABB): boolean {
-    return this.query(box).some((b) => overlaps(box, b, 1e-6));
+    const stamp = this.nextStamp();
+    const c = this.cellSize;
+    const x1 = Math.floor(box.max.x / c);
+    const z0 = Math.floor(box.min.z / c);
+    const z1 = Math.floor(box.max.z / c);
+    for (let x = Math.floor(box.min.x / c); x <= x1; x++)
+      for (let z = z0; z <= z1; z++) {
+        const list = this.cells.get(CollisionWorld.key(x, z));
+        if (!list) continue;
+        for (let k = 0; k < list.length; k++) {
+          const i = list[k]!;
+          if (this.seen[i] === stamp) continue;
+          this.seen[i] = stamp;
+          if (overlaps(box, this.boxes[i]!, 1e-6)) return true;
+        }
+      }
+    return false;
   }
 }

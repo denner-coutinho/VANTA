@@ -42,6 +42,8 @@ import { PasswordHasher } from "../lib/password.js";
 import { applyMatchProgression } from "../modules/progression/progression.service.js";
 import { applyClanResults } from "../modules/clans/clans.service.js";
 import { saveReplay } from "../modules/matches/replay.js";
+import { createRegistry, gameMetrics, metricsAuthorized, type GameMetrics } from "../lib/metrics.js";
+import type { Registry } from "prom-client";
 
 export interface GameServerOptions {
   prisma: PrismaClient;
@@ -62,6 +64,8 @@ export interface GameServerOptions {
   roomGraceMs?: number;
   /** Hash das senhas de sala (Argon2id, o mesmo das contas). */
   hasher?: PasswordHasher;
+  /** Libera GET /metrics (Prometheus) com esse token. Vazio: endpoint desligado. */
+  metricsToken?: string;
 }
 
 interface Client {
@@ -143,6 +147,8 @@ export class GameServer {
   private rotationIndex = 0;
   /** Promessas de persistência pendentes (testes aguardam). */
   readonly pendingSaves = new Set<Promise<unknown>>();
+  readonly registry: Registry;
+  readonly metrics: GameMetrics;
 
   constructor(private opts: GameServerOptions) {
     this.log = opts.log ?? console;
@@ -151,7 +157,18 @@ export class GameServer {
     this.rotation = (opts.maps ?? MAP_ROTATION).filter((c) => MAP_REGISTRY[c]);
     if (!this.rotation.length) throw new Error("Nenhum mapa válido na rotação");
     this.verify = createVerifier({ key: opts.jwtSecret, algorithms: ["HS256"] }) as unknown as (t: string) => Record<string, unknown>;
+    this.registry = createRegistry("game");
+    this.metrics = gameMetrics(this.registry, () => this.metricsState());
     this.http = createServer((req, res) => {
+      if (req.url === "/metrics") {
+        if (!opts.metricsToken) return void res.writeHead(404).end();
+        if (!metricsAuthorized(req.headers.authorization, opts.metricsToken)) return void res.writeHead(401).end();
+        void this.registry.metrics().then(
+          (body) => res.writeHead(200, { "content-type": this.registry.contentType }).end(body),
+          () => res.writeHead(500).end(),
+        );
+        return;
+      }
       if (req.url === "/health") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, matches: this.matches.size, online: this.clients.size }));
@@ -200,11 +217,17 @@ export class GameServer {
       const now = performance.now();
       let steps = 0;
       while (now >= next && steps < 5) {
+        const t0 = performance.now();
         this.stepAll();
+        this.metrics.tick.observe((performance.now() - t0) / 1000);
         next += stepMs;
         steps++;
       }
-      if (now - next > 250) next = now; // servidor travou: não tenta recuperar segundos inteiros
+      if (steps > 1) this.metrics.tickLag.inc({ kind: "catchup" }, steps - 1);
+      if (now - next > 250) {
+        this.metrics.tickLag.inc({ kind: "stall" });
+        next = now; // servidor travou: não tenta recuperar segundos inteiros
+      }
       this.timer = setTimeout(loop, Math.max(0, next - performance.now()));
     };
     this.timer = setTimeout(loop, stepMs);
@@ -230,7 +253,20 @@ export class GameServer {
   }
 
   private send(c: Client, msg: ServerMessage) {
-    if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(msg));
+    if (c.ws.readyState !== WebSocket.OPEN) return;
+    const data = JSON.stringify(msg);
+    c.ws.send(data);
+    this.metrics.messagesOut.inc();
+    this.metrics.bytesOut.inc(Buffer.byteLength(data));
+  }
+
+  /** Estado lido pelo Prometheus na hora da coleta. */
+  private metricsState() {
+    const matches: Record<string, number> = { "1v1": 0, "2v2": 0, "3v3": 0 };
+    for (const m of this.matches.values()) if (!m.isEnded) matches[m.mode] = (matches[m.mode] ?? 0) + 1;
+    const queues: Record<string, number> = {};
+    for (const [key, q] of this.queues) queues[key] = q.length;
+    return { connections: this.wss.clients.size, players: this.clients.size, matches, queues };
   }
 
   private onConnection(ws: WebSocket) {
@@ -243,23 +279,32 @@ export class GameServer {
     // 4000 (e não 4001): demorar para se identificar não é sessão inválida; o cliente só reconecta.
     client.helloTimer = setTimeout(() => ws.close(4000, "hello timeout"), HELLO_TIMEOUT_MS);
     ws.on("message", (data, isBinary) => {
-      if (isBinary) return ws.close(4002, "binary not supported");
+      if (isBinary) {
+        this.metrics.rejected.inc({ reason: "binary" });
+        return ws.close(4002, "binary not supported");
+      }
       const now = Date.now();
       if (now - client.msgWindowStart > 1000) {
         client.msgWindowStart = now;
         client.msgCount = 0;
       }
-      if (++client.msgCount > MAX_MSGS_PER_SEC) return ws.close(4008, "rate limit");
+      if (++client.msgCount > MAX_MSGS_PER_SEC) {
+        this.metrics.rejected.inc({ reason: "rate_limit" });
+        return ws.close(4008, "rate limit");
+      }
       let parsed;
       try {
         parsed = clientMessageSchema.safeParse(JSON.parse(data.toString()));
       } catch {
+        this.metrics.rejected.inc({ reason: "invalid_json" });
         return ws.close(4002, "invalid json");
       }
       if (!parsed.success) {
+        this.metrics.rejected.inc({ reason: "bad_message" });
         this.send(client, { t: "error", code: "BAD_MESSAGE", message: "Mensagem inválida." });
         return;
       }
+      this.metrics.messagesIn.inc({ type: parsed.data.t });
       void this.onMessage(client, parsed.data).catch((e) => {
         this.log.error("[game] erro ao processar mensagem", e);
         this.send(client, { t: "error", code: "INTERNAL", message: "Erro interno." });
@@ -339,6 +384,7 @@ export class GameServer {
         if (!c.match) return;
         const err = c.match.submitCommands(c.userId, msg.c.map(decodeCommand));
         if (err) {
+          this.metrics.rejected.inc({ reason: `cmd_${err}` });
           if (c.match.shouldKick(c.userId)) {
             this.log.warn(`[game] ${c.username} desconectado por violações de protocolo`);
             c.ws.close(4009, "protocol violations");
@@ -956,6 +1002,7 @@ export class GameServer {
       onEnd: (r) => this.onMatchEnd(match, r),
     });
     this.matches.set(match.id, match);
+    this.metrics.matchesStarted.inc({ mode: match.mode });
     room.match = match;
     room.invites.clear();
     for (const s of seats) {
@@ -1150,6 +1197,7 @@ export class GameServer {
       onEnd: (r) => this.onMatchEnd(match, r),
     });
     this.matches.set(match.id, match);
+    this.metrics.matchesStarted.inc({ mode: match.mode });
     const all = [...teams[0], ...teams[1]];
     for (const e of all) {
       e.client.queued = null;
@@ -1193,6 +1241,7 @@ export class GameServer {
   }
 
   private onMatchEnd(match: Match, r: MatchResult) {
+    this.metrics.matchesEnded.inc({ mode: match.mode });
     for (const c of this.clients.values())
       if (c.match === match) {
         c.match = null;

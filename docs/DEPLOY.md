@@ -90,7 +90,13 @@ auditoria de dependências (falha em crítica), build das três imagens e a pilh
 - Os E2Es de jogabilidade (tiro, kill cam, replay) usam ganchos de depuração que só existem no build de
   desenvolvimento; por isso rodam contra `pnpm dev`, não contra a imagem de produção.
 
-## 9. Limites conhecidos
+## 9. Métricas e capacidade
+
+Com `METRICS_TOKEN` definido, a API e o servidor de jogo expõem `GET /metrics` (Prometheus) só na rede interna.
+Um processo de jogo aguenta ~400 jogadores simultâneos. Detalhes, alertas sugeridos e como medir de novo:
+[`docs/LOAD_TEST.md`](LOAD_TEST.md).
+
+## 10. Limites conhecidos
 
 - **Um servidor de jogo só.** Presença, grupos, filas e salas vivem na memória do processo de jogo. Para mais de um
   processo, esse estado precisa ir para o Redis (trabalho da próxima parte da Fase 8).

@@ -31,6 +31,10 @@ const envSchema = z.object({
   /** Só para testar o pacote de produção em http://localhost. Em produção real fica false (exige https). */
   ALLOW_INSECURE_HTTP: bool(false),
   REDIS_KEY_PREFIX: z.string().default("vanta:"),
+  /** Limite geral de requisições por IP por minuto (rotas sensíveis têm limites próprios, menores). */
+  RATE_LIMIT_PER_MIN: z.coerce.number().int().min(10).max(1_000_000).default(300),
+  /** Libera GET /metrics (Prometheus) com "Authorization: Bearer <token>". Vazio: endpoint desligado. */
+  METRICS_TOKEN: z.string().optional().default(""),
   /** Caminho público das rotas /auth, como o NAVEGADOR as vê (o cliente acessa a API por /api). */
   REFRESH_COOKIE_PATH: z.string().startsWith("/").default("/api/auth"),
   /** Stripe (Fase 6). Sem as duas chaves, a compra de VANTA COINS fica desativada (nunca simulada). */
@@ -73,6 +77,7 @@ export function productionProblems(c: z.infer<typeof envSchema>): string[] {
   } catch { /* já validado como URL */ }
   if (!c.PUBLIC_APP_URL.startsWith("https://") && !c.ALLOW_INSECURE_HTTP) out.push("PUBLIC_APP_URL precisa ser https:// (ou ALLOW_INSECURE_HTTP=true só para teste local).");
   if (c.CORS_ORIGINS.split(",").some((o) => o.trim() === "*")) out.push("CORS_ORIGINS não pode ser *.");
+  if (c.METRICS_TOKEN && (c.METRICS_TOKEN.length < 24 || new Set(c.METRICS_TOKEN).size < 10)) out.push("METRICS_TOKEN curto demais: gere um aleatório (24 bytes ou mais).");
   if (!c.SMTP_HOST) out.push("SMTP_HOST é obrigatório (sem ele os links de e-mail iriam para o log).");
   return out;
 }

@@ -305,3 +305,21 @@ describe("comandos e predição (Fase 3)", () => {
     expect(shots).toBe(0);
   });
 });
+
+describe("grade de colisão", () => {
+  it("devolve exatamente as caixas da força bruta, sem repetir, em todos os mapas", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+    for (const map of Object.values(MAP_REGISTRY)) {
+      const boxes = map.solids.map((s) => s.box);
+      const world = new CollisionWorld(boxes);
+      for (let i = 0; i < 400; i++) {
+        const region = aabbFromCenter((rnd() - 0.5) * 120, rnd() * 6, (rnd() - 0.5) * 120, rnd() * 12, rnd() * 4, rnd() * 12);
+        const got = world.query(region);
+        expect(new Set(got).size).toBe(got.length);
+        for (const b of boxes) if (overlaps(region, b)) expect(got).toContain(b);
+        expect(world.collides(region)).toBe(boxes.some((b) => overlaps(region, b, 1e-6)));
+      }
+    }
+  });
+});
