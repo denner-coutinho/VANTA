@@ -40,6 +40,7 @@ import type { SocialBus } from "../modules/social/bus.js";
 import { RoomManager, type Room, type RoomError } from "./rooms.js";
 import { PasswordHasher } from "../lib/password.js";
 import { applyMatchProgression } from "../modules/progression/progression.service.js";
+import { applyClanResults } from "../modules/clans/clans.service.js";
 
 export interface GameServerOptions {
   prisma: PrismaClient;
@@ -1266,6 +1267,8 @@ export class GameServer {
       }
       // XP, medalhas, missões e conquistas (só partidas da fila: sala não dá progressão).
       const progress = r.roomId ? [] : await applyMatchProgression(tx, { matchId: r.matchId, winner: r.winner, players: r.players, events: r.events }, (p) => resultFor(p.team, p.abandoned), r.endedAt);
+      // Clãs com 2+ membros no mesmo time: histórico e pontos de clã (também só fila).
+      if (!r.roomId) await applyClanResults(tx, r.matchId, r.players, (team) => resultFor(team, false) as "WIN" | "LOSS" | "DRAW");
       return { ranked, progress };
     }, { timeout: 20_000 });
     // Cada jogador recebe só o próprio resultado ranqueado (pontos e patente; o MMR fica oculto).

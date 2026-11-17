@@ -60,8 +60,9 @@ export async function rankedRoutes(app: FastifyInstance) {
   });
 
   app.get("/ranked/leaderboard", { preHandler: app.authenticate }, async (req): Promise<RankedLeaderboardResponse> => {
-    const q = z.object({ mode: z.enum(["1v1", "2v2", "3v3"]).default("1v1"), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).max(10_000).default(0) }).parse(req.query);
-    const season = await getActiveSeason(app.prisma);
+    const q = z.object({ mode: z.enum(["1v1", "2v2", "3v3"]).default("1v1"), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).max(10_000).default(0), seasonId: z.string().min(1).max(40).optional() }).parse(req.query);
+    // Sem seasonId: temporada ativa. Com seasonId: qualquer temporada (as fechadas mantêm os ratings finais).
+    const season = q.seasonId ? await app.prisma.rankedSeason.findUnique({ where: { id: q.seasonId }, select: { id: true, name: true } }) : await getActiveSeason(app.prisma);
     if (!season) return { season: null, mode: q.mode, total: 0, entries: [], me: null };
     const where = { seasonId: season.id, mode: MODES[q.mode].db, placementLeft: 0 };
     const [total, rows, mine] = await Promise.all([
