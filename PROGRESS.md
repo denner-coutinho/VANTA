@@ -269,8 +269,30 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **Eventos especiais** já existem no banco e as missões de evento funcionam, mas criar e editar eventos só vai ter tela no painel administrativo (parte 5). Hoje não há evento ativo no seed.
 - **Ace e Sangue frio só existem com 2 ou mais adversários**, então não aparecem no 1v1.
 
-### Partes 4 e 5 ⏳ (e o restante da 3: clãs, cartão do jogador, perfil público e ranking)
-Clãs, cartão de jogador, perfil público, rankings por modo e temporada · replays, kill cam e apresentação do MVP · painel administrativo e teclas remapeáveis.
+### Parte 3b — Clãs, cartão do jogador, perfil público e rankings ✅ (16/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **Criar clã** com nome (3–24, único sem diferenciar maiúsculas), tag de 2 a 5 letras/números (única), descrição, **logo** (6 formas × 7 cores, vetorial e original) e aberto/só convite | ✅ | `test/clans.test.ts` + `shared/identity.test.ts` + E2E + captura 55 |
+| **Membros e cargos**: líder, oficial e membro. Convite pelo nome (vale 7 dias), aceitar/recusar, entrar direto em clã aberto, sair, remover, promover/rebaixar, passar a liderança, desfazer. Oficial remove só membro; só o líder mexe em cargos e abre/fecha o clã. Limite de 30 membros (com trava no banco contra entradas simultâneas). Bloqueio impede convite | ✅ | Testes + E2E |
+| **Líder que sai** passa a liderança para o oficial mais antigo (ou o membro mais antigo); o último a sair apaga o clã | ✅ | Teste |
+| **Histórico e pontos do clã**: partida da fila com 2+ membros no mesmo time entra no histórico e vale +20 (vitória), −15 (derrota/abandono), 0 (empate). Sala não conta | ✅ | Teste com partidas gravadas pelo servidor de jogo |
+| **Ranking de clãs** (top 100 por pontos) e página pública de cada clã (`/cla/TAG`) | ✅ | Testes + E2E + captura 57 |
+| **Perfil público** (`/jogador/nome`): cartão, estatísticas, patentes da temporada por modo, medalhas, conquistas e últimas 10 partidas da fila. Conta banida/apagada some; quem bloqueou você não aparece para você | ✅ | Teste + E2E + captura 56 |
+| **Cartão do jogador**: 6 estilos que **abrem por nível** (1, 3, 5, 10, 15, 25) e 6 cores de avatar, de graça; o servidor confere o nível. Mostra [TAG] do clã, título, nível e patente | ✅ | Teste + E2E |
+| **Rankings top 100**: ranqueado por modo **e por temporada** (as fechadas mantêm o rating final), nível (XP) e clãs, com a sua posição | ✅ | Testes + E2E |
+
+**Testes:** 129 no servidor (7 novos), 94 no shared (4 novos), 11 no cliente + **E2E de clãs e perfil com dois navegadores** (`scripts/e2e-clans.mjs`, 10 etapas: criar clã fechado, busca sem botão de entrar, convite e aceite, promoção, descrição, rankings, perfil público, cartão por nível, remover e desfazer).
+
+#### Limites honestos da parte 3b
+- **O E2E não joga uma partida de clã**: precisaria de 4 navegadores numa 2v2. O histórico e os pontos do clã estão cobertos por teste do servidor com partidas gravadas pelo próprio servidor de jogo, não pela interface.
+- **No E2E, o XP para liberar o cartão de nível 5 foi ajustado direto no banco** (jogar até o nível 5 levaria muitas partidas). A regra de nível é conferida no servidor e testada.
+- **A tag do clã ainda não aparece no placar dentro da partida** nem no chat; aparece no cartão, no perfil, no ranking de nível e na página do clã.
+- **Sem chat de clã, guerra de clãs ou temporada de clãs.** Os pontos de clã não reiniciam por temporada.
+- **Convite de clã não chega em tempo real**: aparece ao abrir a tela de clã (o convite de grupo e de sala é que chegam na hora).
+
+### Partes 4 e 5 ⏳
+Replays, kill cam e apresentação do MVP · painel administrativo e teclas remapeáveis.
 
 ## Fase 8 ⏳
 Finalização (carga, segurança, Docker, CI, deploy).

@@ -159,3 +159,11 @@ navegador ──HTTP /api──▶ API Fastify (:4000) ──▶ PostgreSQL / Re
 - **Conquistas** são conferidas depois de cada ganho (partida, missão, outra conquista), contra os totais do perfil e as medalhas. Dão XP e um título. `PUT /profile/title` só aceita título de conquista desbloqueada.
 - **Aviso ao jogador**: depois da transação, o servidor de jogo manda `{ t: "progress" }` só para cada jogador, com XP, nível antes e depois, medalhas, missões concluídas e conquistas. O resultado mostra isso; a tela `/progresso` lê `GET /progression`.
 
+## Clãs, perfil público e rankings (Fase 7, parte 3b)
+
+- **Regras em `@vanta/shared/identity.ts`**: validação de nome, tag e logo, hierarquia (`canManage`), pontos por partida (`clanPointsDelta`), estilos de cartão com nível mínimo e os tipos da API.
+- **Clãs** (`modules/clans`): `Clan` (com `isOpen` e `rating` como pontos), `ClanMember` (um clã por jogador, garantido pelo índice único), `ClanInvite` (um por clã e jogador, com validade) e `ClanMatch` (histórico). Entrar no clã trava a linha do clã (`SELECT … FOR UPDATE`) para o limite de 30 não estourar com entradas simultâneas. Todas as permissões são conferidas no serviço, nunca no cliente.
+- **Pontos de clã** são aplicados por `applyClanResults` dentro da mesma transação que grava a partida (como XP e ranqueado), só para partidas da fila, com chave única `(clanId, matchId)` para não contar duas vezes.
+- **Perfil público e cartão** (`modules/players`): `GET /players/:nome` monta o cartão (perfil + clã + melhor patente da temporada ativa) e as estatísticas; esconde contas banidas/apagadas e quem bloqueou o visitante. `PUT /profile/card` confere o nível do cartão.
+- **Rankings**: `GET /ranked/leaderboard?seasonId=` (qualquer temporada; os ratings de temporadas fechadas ficam no banco), `GET /rankings/level` e `GET /rankings/clans`, todos até 100.
+

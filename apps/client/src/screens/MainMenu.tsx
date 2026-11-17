@@ -25,6 +25,8 @@ const NAV: Array<{ key: string; label: string; phase?: number; hint: string }> =
   { key: "ranked", label: "Ranqueado", hint: "Patentes, temporada e ranking" },
   { key: "rooms", label: "Salas", hint: "Personalizadas, com código e espectador" },
   { key: "progress", label: "Progresso", hint: "Missões, conquistas, medalhas e títulos" },
+  { key: "clan", label: "Clã", hint: "Criar, convidar, histórico e pontos" },
+  { key: "ranking", label: "Ranking", hint: "Top 100 por modo, temporada, nível e clã" },
   { key: "store", label: "Loja", hint: "Skins e VANTA COINS" },
   { key: "inventory", label: "Inventário", hint: "Equipar skins e emblemas" },
   { key: "profile", label: "Perfil", hint: "Conta, progresso e segurança" },
@@ -78,6 +80,8 @@ export function MainMenu() {
     if (key === "store") return navigate("/loja");
     if (key === "inventory") return navigate("/inventario");
     if (key === "progress") return navigate("/progresso");
+    if (key === "clan") return navigate("/cla");
+    if (key === "ranking") return navigate("/ranking");
     if (key === "rooms") return navigate(gameSocket.room ? "/sala" : "/salas");
     if (phase) {
       uiSound.error();

@@ -16,6 +16,9 @@ import { RoomsScreen } from "./screens/RoomsScreen";
 import { RoomLobby } from "./screens/RoomLobby";
 import { SpectateScreen } from "./screens/SpectateScreen";
 import { ProgressScreen } from "./screens/ProgressScreen";
+import { ClanScreen } from "./screens/ClanScreen";
+import { RankingScreen } from "./screens/RankingScreen";
+import { PlayerProfileScreen } from "./screens/PlayerProfileScreen";
 import { InviteStack } from "./social/PartyWidget";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -51,6 +54,10 @@ export function App() {
       <Route path="/salas" element={<RequireAuth><RoomsScreen /></RequireAuth>} />
       <Route path="/sala" element={<RequireAuth><RoomLobby /></RequireAuth>} />
       <Route path="/progresso" element={<RequireAuth><ProgressScreen /></RequireAuth>} />
+      <Route path="/cla" element={<RequireAuth><ClanScreen /></RequireAuth>} />
+      <Route path="/cla/:tag" element={<RequireAuth><ClanScreen /></RequireAuth>} />
+      <Route path="/ranking" element={<RequireAuth><RankingScreen /></RequireAuth>} />
+      <Route path="/jogador/:username" element={<RequireAuth><PlayerProfileScreen /></RequireAuth>} />
       <Route path="/assistir" element={<RequireAuth><SpectateScreen /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

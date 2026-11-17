@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { rankProgress } from "@vanta/shared";
 import { useAuth } from "../auth/AuthContext";
 import { api } from "../api/client";
@@ -9,6 +10,7 @@ export function ProfilePanel({ onClose }: { onClose: () => void }) {
   const { me, logoutAll } = useAuth();
   const toast = useToast();
   const [sending, setSending] = useState(false);
+  const navigate = useNavigate();
   if (!me) return null;
   const rp = rankProgress(me.ranked?.points ?? 0);
 
@@ -41,6 +43,10 @@ export function ProfilePanel({ onClose }: { onClose: () => void }) {
           <div className="stat"><span className="label">XP total</span><strong>{me.profile.totalXp.toLocaleString("pt-BR")}</strong></div>
           <div className="stat"><span className="label">VANTA COINS</span><strong>{me.wallet.balance.toLocaleString("pt-BR")}</strong></div>
           <div className="stat rank"><RankEmblem order={rp.rank.order} size={52} /><div><span className="label">Patente</span><strong style={{ color: rp.rank.color }}>{me.ranked ? rp.rank.name : "Sem patente"}</strong><span className="muted">{me.ranked ? `${me.ranked.placementMatchesLeft} partidas de classificação restantes` : "Ranqueado abre na Temporada 1"}</span></div></div>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <Button variant="ghost" block onClick={() => navigate(`/jogador/${encodeURIComponent(me.user.username)}`)} data-testid="open-public-profile">Ver perfil público e cartão</Button>
         </div>
 
         <h3 className="label" style={{ marginTop: 28 }}>Conta e segurança</h3>

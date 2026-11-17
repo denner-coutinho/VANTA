@@ -149,4 +149,12 @@ describe("perfil público, cartão e ranking de nível", () => {
     expect(board.entries[0]).toMatchObject({ username: a.name, totalXp: 5000 });
     expect(board.me).toMatchObject({ position: 2, totalXp: 0 });
   });
+
+  it("ranking ranqueado aceita temporada: temporada inexistente não devolve ninguém", async () => {
+    const a = await player();
+    const r = (await api(a, "GET", "/ranked/leaderboard?mode=2v2&seasonId=nao-existe")).json();
+    expect(r).toMatchObject({ season: null, entries: [] });
+    const seasons = (await api(a, "GET", "/ranked/seasons")).json() as Array<{ id: string; name: string }>;
+    if (seasons[0]) expect((await api(a, "GET", `/ranked/leaderboard?mode=1v1&seasonId=${seasons[0].id}`)).json().season).toBe(seasons[0].name);
+  });
 });
