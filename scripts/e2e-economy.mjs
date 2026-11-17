@@ -13,6 +13,7 @@ import { execSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { enableMfaUi } from "./lib/mfa-ui.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(`${execSync("npm root -g").toString().trim()}/playwright`);
@@ -96,6 +97,8 @@ try {
   // A promoção invalida os tokens de acesso emitidos antes (tokenVersion); a página renova pelo refresh.
   await ADM.page.reload();
   await ADM.page.waitForURL("**/menu", { timeout: 30000 });
+  // Admin só usa rotas da equipe com a verificação em duas etapas.
+  await enableMfaUi(ADM.page, BASE, "SenhaForte123");
   const aId = sql(`SELECT "id" FROM "User" WHERE "username"='${A.name}';`);
   const asPlayer = await apiCall(A.page, "POST", "/admin/wallet/adjust", { userId: aId, amount: 5000, reason: "teste e2e", requestId: crypto.randomUUID() });
   assert(asPlayer.status === 403, "jogador comum não pode ajustar saldo", asPlayer);

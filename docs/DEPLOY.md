@@ -18,7 +18,7 @@ cp deploy/.env.production.example deploy/.env.production
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
-Preencha `PUBLIC_APP_URL` (https), `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `JWT_ACCESS_SECRET` e o SMTP.
+Preencha `PUBLIC_APP_URL` (https), `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `JWT_ACCESS_SECRET`, `MFA_ENCRYPTION_KEY` (outro segredo aleatório, diferente do JWT) e o SMTP.
 O arquivo preenchido **nunca** vai para o Git (`.gitignore` já ignora `.env.*`).
 
 A API e o servidor de jogo recusam subir em produção se encontrarem: segredo de exemplo ou com pouca variedade,
@@ -65,6 +65,14 @@ docker compose ... exec -T postgres pg_restore -U vanta -d vanta --clean < backu
 
 Agende o `pg_dump` diário (cron) e guarde fora do servidor. O Redis guarda só dados temporários (limites de taxa,
 sessões de fila) e pode ser perdido sem prejuízo.
+
+## 5b. Equipe e verificação em duas etapas
+
+Moderadores, admins e superadmins só usam o painel com a verificação em duas etapas ligada (app autenticador).
+Depois de `create-admin`, a pessoa entra no jogo, vai em Perfil › Verificação em duas etapas, liga, guarda os códigos
+de recuperação e entra de novo com o código. Quem perder o celular e os códigos: o superadmin desliga pela ficha
+(`Desligar verificação`), com motivo registrado na auditoria. A `MFA_ENCRYPTION_KEY` cifra os segredos no banco:
+guarde-a com os outros segredos; trocá-la ou perdê-la obriga todos a cadastrar o app de novo.
 
 ## 6. Segurança da imagem
 

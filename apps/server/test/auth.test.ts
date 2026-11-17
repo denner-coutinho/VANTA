@@ -193,6 +193,25 @@ describe("autenticação e sessão", () => {
     expect(await ctx.prisma.securityEvent.count({ where: { type: "REFRESH_TOKEN_REUSE" } })).toBe(1);
   });
 
+  it("token recém-rotacionado (página recarregou no meio da renovação) ainda renova, na mesma família", async () => {
+    const { res } = await register();
+    const rt1 = getRefreshCookie(res)!;
+    const r2 = await ctx.app.inject({ method: "POST", url: "/auth/refresh", cookies: { vanta_rt: rt1 }, headers: WEB });
+    expect(r2.statusCode).toBe(200);
+    // A resposta com rt2 "se perdeu": o navegador manda rt1 de novo, dentro da tolerância.
+    const again = await ctx.app.inject({ method: "POST", url: "/auth/refresh", cookies: { vanta_rt: rt1 }, headers: WEB });
+    expect(again.statusCode).toBe(200);
+    const rt3 = getRefreshCookie(again)!;
+    expect(rt3).not.toBe(rt1);
+    const s1 = await ctx.prisma.authSession.findFirstOrThrow({ where: { revokedReason: "ROTATED" } });
+    const s3 = await ctx.prisma.authSession.findMany({ where: { familyId: s1.familyId, revokedAt: null } });
+    expect(s3).toHaveLength(2);
+    expect(await ctx.prisma.securityEvent.count({ where: { type: "REFRESH_TOKEN_REUSE" } })).toBe(0);
+    // Depois de um logout (família sem sessão viva), o token antigo não ressuscita nada.
+    await ctx.app.inject({ method: "POST", url: "/auth/logout-all", headers: { authorization: `Bearer ${again.json().accessToken}` } });
+    expect((await ctx.app.inject({ method: "POST", url: "/auth/refresh", cookies: { vanta_rt: rt1 }, headers: WEB })).statusCode).toBe(401);
+  });
+
   it("logout revoga a sessão atual", async () => {
     const { res } = await register();
     const rt = getRefreshCookie(res)!;

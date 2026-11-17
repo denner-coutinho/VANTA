@@ -8,6 +8,7 @@ import { execSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { enableMfaUi } from "./lib/mfa-ui.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(`${execSync("npm root -g").toString().trim()}/playwright`);
@@ -71,7 +72,11 @@ try {
   const M = await newPlayer("m");
   const S = await newPlayer("s");
   sql(`UPDATE "User" SET role = 'MODERATOR' WHERE id = '${M.userId}'; UPDATE "User" SET role = 'SUPERADMIN' WHERE id = '${S.userId}';`);
-  ok("três contas reais: jogador, moderador e superadmin");
+  // Cargo da equipe só usa o painel com a verificação em duas etapas (coberta a fundo pelo e2e-mfa).
+  await enableMfaUi(M.page, BASE, PASS, T);
+  await enableMfaUi(S.page, BASE, PASS, T);
+  await M.page.goto(`${BASE}/menu`);
+  ok("três contas reais: jogador, moderador e superadmin (equipe com verificação em duas etapas)");
 
   // 1. Jogador comum não vê nem abre o painel.
   assert((await P.page.locator(tid("open-admin")).count()) === 0, "jogador não deveria ver o botão do painel");

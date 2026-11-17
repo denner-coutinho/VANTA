@@ -194,8 +194,16 @@ export class AuthService {
     if (!session) throw Errors.unauthorized("Sessão inválida. Faça login novamente.");
 
     if (session.revokedAt) {
+      const sinceRevoke = Date.now() - session.revokedAt.getTime();
+      // Recém-rotacionado (outra aba renovou junto, ou a página recarregou no meio da renovação e a
+      // resposta com o cookie novo se perdeu): abre uma sessão irmã na mesma família, em vez de deslogar.
+      if (session.revokedReason === "ROTATED" && sinceRevoke < ROTATION_GRACE_MS && session.expiresAt > new Date()) {
+        await this.assertAccountUsable(session.user);
+        const family = await this.prisma.authSession.count({ where: { familyId: session.familyId, revokedAt: null } });
+        if (family > 0) return this.createSession(session.user, meta, session.familyId, session.mfa && !!session.user.totpEnabledAt);
+      }
       // Só um token já ROTACIONADO indica roubo; tokens encerrados por logout/reuso apenas falham.
-      const isStolenRotated = session.revokedReason === "ROTATED" && Date.now() - session.revokedAt.getTime() >= ROTATION_GRACE_MS;
+      const isStolenRotated = session.revokedReason === "ROTATED" && sinceRevoke >= ROTATION_GRACE_MS;
       if (isStolenRotated) {
         await this.prisma.authSession.updateMany({ where: { familyId: session.familyId, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: "REUSE_DETECTED" } });
         await this.logSecurity(session.userId, "REFRESH_TOKEN_REUSE", meta, { familyId: session.familyId });
