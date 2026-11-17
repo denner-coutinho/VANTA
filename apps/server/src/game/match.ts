@@ -1,5 +1,6 @@
 import {
   KILLCAM_MS,
+  maxRounds,
   REPLAY_EVERY_SNAPSHOTS,
   REPLAY_VERSION,
   CATEGORY_TUNING,
@@ -39,10 +40,10 @@ import {
   type CustomMatchRules,
   type SpecFrame,
   type WireSpec,
-  type ReplayFile,
   type MatchPlayerInfo,
   SPECTATOR_DELAY_MS,
 } from "@vanta/shared";
+import { ReplayRecorder, type PendingReplay } from "./replay-recorder.js";
 
 export interface Conn {
   send(msg: ServerMessage): void;
@@ -116,7 +117,7 @@ export interface MatchResult {
   players: Array<PlayerMatchStats & { characterId: string | null }>;
   events: Array<{ tick: number; round: number; type: string; actorId?: string; targetId?: string; data: object }>;
   /** Replay completo (quadros a 15 Hz + eventos públicos). Ausente em testes que montam o resultado à mão. */
-  replay?: ReplayFile;
+  replay?: PendingReplay;
 }
 
 export interface MatchOptions {
@@ -159,7 +160,7 @@ export class Match {
   score: [number, number] = [0, 0];
   private events: MatchEventWire[] = [];
   /** Replay: um quadro a cada REPLAY_EVERY_SNAPSHOTS snapshots (fora do aquecimento); eventos acumulados entre quadros. */
-  private replayFrames: SpecFrame[] = [];
+  private replay = new ReplayRecorder();
   private replayEv: MatchEventWire[] = [];
   private snapCount = 0;
   /** Últimos segundos de posições (para a kill cam) e kill cams esperando o próximo snapshot. */
@@ -536,6 +537,7 @@ export class Match {
       case "round_end":
         if (t >= this.phaseEndsAt) {
           if (this.score[0] >= this.roundsToWin || this.score[1] >= this.roundsToWin) this.endMatch(this.score[0] > this.score[1] ? 0 : 1, "score");
+          else if (this.round >= maxRounds(this.roundsToWin)) this.endMatch(this.score[0] === this.score[1] ? null : this.score[0] > this.score[1] ? 0 : 1, "score");
           else this.startRound();
         }
         break;
@@ -593,6 +595,8 @@ export class Match {
       players: stats.map((s) => ({ ...s, characterId: this.player(s.id)!.characterId })),
       events: this.log,
       replay: {
+        recorder: this.replay,
+        header: {
         v: REPLAY_VERSION,
         matchId: this.id,
         mode: this.mode,
@@ -602,7 +606,7 @@ export class Match {
         players: this.playerInfos().map((p) => ({ ...p, connected: true })),
         startedAt: this.startedAt.toISOString(),
         endedAt: this.endedAt.toISOString(),
-        frames: this.replayFrames,
+        },
       },
     });
   }
@@ -680,10 +684,8 @@ export class Match {
       for (const ev of this.events) this.replayEv.push(ev.k === "shot" ? { ...ev, ends: ev.ends.slice(0, 1) } : ev);
       if (++this.snapCount % REPLAY_EVERY_SNAPSHOTS === 0 || this.phase === "ended" || this.replayEv.some((e) => e.k === "kill" || e.k === "round_end")) {
         const frame: SpecFrame = { t: "spec", tick: this.tick, phase: this.phase, phaseEndsIn, round: this.round, score: [...this.score], players, kd, ev: this.replayEv };
-        const last = this.replayFrames[this.replayFrames.length - 1];
-        // Dois envios no mesmo tick (ex.: fim da partida): junta no mesmo quadro.
-        if (last?.tick === this.tick) this.replayFrames[this.replayFrames.length - 1] = { ...frame, ev: [...last.ev, ...frame.ev] };
-        else this.replayFrames.push(frame);
+        // Dois envios no mesmo tick (ex.: fim da partida): o gravador junta no mesmo quadro.
+        this.replay.push(frame);
         this.replayEv = [];
       }
     }

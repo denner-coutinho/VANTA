@@ -4,6 +4,7 @@ import { gunzipSync } from "node:zlib";
 import type { PlayerMatchStats, ReplayFile, SpecFrame } from "@vanta/shared";
 import { GameServer } from "../src/game/server.js";
 import type { MatchResult } from "../src/game/match.js";
+import { ReplayRecorder } from "../src/game/replay-recorder.js";
 import { pruneReplays } from "../src/modules/matches/replay.js";
 import { closeTestContext, createTestContext, newPlayer, resetState, type TestContext } from "./helpers.js";
 
@@ -32,7 +33,7 @@ async function player(): Promise<P> {
   return { id: j.user.id, token: j.accessToken };
 }
 
-function result(a: P, b: P): MatchResult {
+function result(a: P, b: P): MatchResult & { file: ReplayFile } {
   const matchId = crypto.randomUUID();
   const frames: SpecFrame[] = Array.from({ length: 300 }, (_, i) => ({
     t: "spec",
@@ -47,7 +48,7 @@ function result(a: P, b: P): MatchResult {
   }));
   const players = [a, b].map((p, i) => ({ id: p.id, username: p.id, kills: 0, deaths: 0, assists: 0, headshots: 0, damage: 0, shots: 0, hits: 0, abandoned: false, mvp: i === 0, characterId: null, team: i as 0 | 1 })) as Array<PlayerMatchStats & { characterId: string | null }>;
   const replay: ReplayFile = { v: 1, matchId, mode: "1v1", map: "NEON_DISTRICT", roundsToWin: 5, rules: null, players: players.map((p) => ({ id: p.id, username: p.username, team: p.team, color: "#287BFF", character: "RAVEN", loadout: [], connected: true })), startedAt: new Date().toISOString(), endedAt: new Date().toISOString(), frames };
-  return { matchId, mode: "1v1", mapCode: "NEON_DISTRICT", ranked: false, winner: 0, score: [5, 0], reason: "score", startedAt: new Date(Date.now() - 60_000), endedAt: new Date(), roundsToWin: 5, roomId: null, events: [], players, replay };
+  return { matchId, mode: "1v1", mapCode: "NEON_DISTRICT", ranked: false, winner: 0, score: [5, 0], reason: "score", startedAt: new Date(Date.now() - 60_000), endedAt: new Date(), roundsToWin: 5, roomId: null, events: [], players, replay: ReplayRecorder.fromFile(replay), file: replay } as MatchResult & { file: ReplayFile };
 }
 
 describe("replays", () => {
@@ -57,7 +58,7 @@ describe("replays", () => {
     await gs.persist(r);
     const row = await ctx.prisma.matchReplay.findUniqueOrThrow({ where: { matchId: r.matchId } });
     expect(row).toMatchObject({ version: 1, frameCount: 300 });
-    expect(row.sizeBytes).toBeLessThan(JSON.stringify(r.replay).length / 3);
+    expect(row.sizeBytes).toBeLessThan(JSON.stringify(r.file).length / 3);
     const match = await ctx.prisma.match.findUniqueOrThrow({ where: { id: r.matchId } });
     expect(match.replayHash).toBe(row.sha256);
 

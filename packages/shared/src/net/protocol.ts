@@ -33,6 +33,15 @@ export const MODES: Record<QueueMode, { teamSize: number; roundsToWin: number; d
   "3v3": { teamSize: 3, roundsToWin: 7, db: "TEAM_3V3", label: "Equipe 3v3" },
 };
 
+/**
+ * Limite de rounds da partida. Rounds podem empatar (tempo esgotado com os times iguais em vivos e
+ * vida); sem limite, uma partida em que ninguém se acerta nunca acabaria. No limite, vence quem tem
+ * mais rounds, ou a partida empata.
+ */
+export function maxRounds(roundsToWin: number) {
+  return roundsToWin * 2;
+}
+
 export const PHASE_MS = {
   /** Espera todos carregarem o mapa (no máximo). */
   warmupMax: 20_000,

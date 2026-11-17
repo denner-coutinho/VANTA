@@ -1,3 +1,4 @@
+import fp from "fastify-plugin";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -20,6 +21,7 @@ import { rankedRoutes } from "./modules/ranked/ranked.routes.js";
 import { economyRoutes } from "./modules/economy/economy.routes.js";
 import { StripeGateway, type PaymentGateway } from "./modules/economy/payments.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
+import { metricsRoutes } from "./modules/health/metrics.routes.js";
 import { RedisSocialBus, type SocialBus } from "./modules/social/bus.js";
 import { adminRoutes } from "./modules/admin/admin.routes.js";
 import { SocialService } from "./modules/social/social.service.js";
@@ -102,7 +104,7 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   await app.register(jwt, { secret: config.JWT_ACCESS_SECRET, sign: { algorithm: "HS256" }, verify: { algorithms: ["HS256"] } });
   await app.register(rateLimit, {
     global: true,
-    max: 300,
+    max: config.RATE_LIMIT_PER_MIN,
     timeWindow: "1 minute",
     redis,
     nameSpace: "rl:",
@@ -115,6 +117,7 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   await app.register(authPlugin);
 
   await app.register(healthRoutes);
+  await app.register(fp(metricsRoutes));
   await app.register(authRoutes);
   await app.register(meRoutes);
   await app.register(contentRoutes);
