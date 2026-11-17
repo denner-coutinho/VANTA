@@ -93,9 +93,11 @@ try {
     await page.getByRole("heading", { name: "NOVA" }).waitFor();
   });
 
-  await step("botão de modo ainda não liberado avisa a fase (sem fingir)", async () => {
+  await step("botão Salas abre as salas personalizadas (liberadas na Fase 7)", async () => {
     await page.click('[data-testid="nav-rooms"]');
-    await page.getByText("Fase 7 do roadmap").waitFor();
+    await page.getByRole("heading", { name: "Salas personalizadas" }).waitFor();
+    await page.goto(`${BASE}/menu`);
+    await page.waitForSelector('[data-testid="nav-profile"]');
   });
 
   await step("perfil mostra dados reais e verificação pendente", async () => {

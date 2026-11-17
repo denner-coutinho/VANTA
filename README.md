@@ -86,12 +86,17 @@ Sem `STRIPE_SECRET_KEY` e `STRIPE_WEBHOOK_SECRET`, a compra de VANTA COINS fica 
 
 Só o webhook credita moedas. O cartão é digitado na página da Stripe; o jogo não recebe nem guarda dados de cartão.
 
-## Deploy (preparação)
+## Deploy
 
-- API: `pnpm build && pnpm --filter @vanta/server start` atrás de um proxy reverso com HTTPS (defina `TRUST_PROXY=true`).
-- Cliente: `pnpm --filter @vanta/client build` gera `apps/client/dist` (estático; sirva com o proxy encaminhando `/api` para a API, mantendo a mesma origem).
-- Banco: `pnpm db:deploy` a cada release (nunca `migrate dev`/`reset` em produção).
-- Dockerfiles e pipeline de CI entram na Fase 8.
+Produção em um servidor com Docker (cliente + API + jogo + Postgres + Redis, só o nginx exposto):
+
+```bash
+cp deploy/.env.production.example deploy/.env.production   # preencha os segredos
+docker compose -f docker-compose.prod.yml --env-file deploy/.env.production up -d --build --wait
+```
+
+Passo a passo, backup, segurança e limites em [docs/DEPLOY.md](docs/DEPLOY.md). A CI (`.github/workflows/ci.yml`)
+roda typecheck, testes, build, auditoria e a pilha de produção em todo PR.
 
 ## Licença dos assets
 

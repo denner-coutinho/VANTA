@@ -1,0 +1,87 @@
+# CI do VANTA: FRONTLINE. Roda em todo pull request e em push na main.
+# Nenhum segredo de produção é usado aqui: só bancos descartáveis do próprio runner.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, testes e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: vanta, POSTGRES_PASSWORD: vanta, POSTGRES_DB: vanta_test }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vanta" --health-interval 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://vanta:vanta@localhost:5432/vanta_test?schema=public
+      TEST_DATABASE_URL: postgresql://vanta:vanta@localhost:5432/vanta_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-segredo-descartavel-com-mais-de-32-caracteres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Build dos pacotes compartilhados
+        run: pnpm --filter @vanta/shared build && pnpm --filter @vanta/db build
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Testes (shared, cliente, servidor com Postgres e Redis reais)
+        run: pnpm test
+      - name: Build de produção
+        run: pnpm build
+      - name: Auditoria de dependências de produção (falha em crítica)
+        run: pnpm audit --prod --audit-level critical
+
+  docker:
+    name: Imagens Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (server, migrate, web)
+        run: |
+          for t in server migrate web; do
+            docker buildx build --target "$t" -t "vanta-frontline/$t:ci" --load .
+          done
+      - name: Sobe a pilha de produção e confere a saúde
+        run: |
+          gen() { node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"; }
+          cat > /tmp/prod.env <<ENV
+          VANTA_VERSION=ci
+          PUBLIC_APP_URL=http://localhost:8080
+          POSTGRES_PASSWORD=$(gen)
+          REDIS_PASSWORD=$(gen)
+          JWT_ACCESS_SECRET=$(gen)$(gen)
+          SMTP_HOST=mailpit
+          SMTP_PORT=1025
+          ALLOW_INSECURE_HTTP=true
+          ENV
+          docker compose -f docker-compose.prod.yml --env-file /tmp/prod.env --profile local up -d --no-build --wait --wait-timeout 300
+          curl -fsS http://localhost:8080/api/health
+          curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
+      - name: Logs em caso de falha
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs --no-color | tail -200

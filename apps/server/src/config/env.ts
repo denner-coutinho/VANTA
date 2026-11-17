@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/** "true"/"1"/"yes" → true. (z.coerce.boolean transformaria "false" em true.) */
+const bool = (d: boolean) => z.preprocess((v) => (v === undefined || v === "" ? d : typeof v === "boolean" ? v : ["true", "1", "yes", "sim"].includes(String(v).trim().toLowerCase())), z.boolean());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().url(),
@@ -20,7 +23,13 @@ const envSchema = z.object({
   /** Custo de memória do Argon2id em KiB (OWASP: mínimo 19 MiB). Reduzido só nos testes. */
   ARGON2_MEMORY_KIB: z.coerce.number().int().min(1024).default(19456),
   /** Atrás de proxy reverso (nginx, load balancer), confie no X-Forwarded-For. */
-  TRUST_PROXY: z.coerce.boolean().default(false),
+  /**
+   * Atrás de proxy: número de proxies confiáveis na frente (ex.: 1 = só o nginx). "true" confia em
+   * todos e deixa o IP falsificável pelo cabeçalho X-Forwarded-For; prefira o número.
+   */
+  TRUST_PROXY: z.preprocess((v) => (v === undefined || v === "" ? false : /^\d+$/.test(String(v)) ? Number(v) : ["true", "1", "yes"].includes(String(v).toLowerCase())), z.union([z.boolean(), z.number().int().min(0).max(10)])),
+  /** Só para testar o pacote de produção em http://localhost. Em produção real fica false (exige https). */
+  ALLOW_INSECURE_HTTP: bool(false),
   REDIS_KEY_PREFIX: z.string().default("vanta:"),
   /** Caminho público das rotas /auth, como o NAVEGADOR as vê (o cliente acessa a API por /api). */
   REFRESH_COOKIE_PATH: z.string().startsWith("/").default("/api/auth"),
@@ -38,8 +47,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`Configuração inválida:\n${issues}`);
   }
   const c = parsed.data;
-  if (c.NODE_ENV === "production" && c.JWT_ACCESS_SECRET.startsWith("troque-este")) {
-    throw new Error("JWT_ACCESS_SECRET padrão não pode ser usado em produção.");
+  if (c.NODE_ENV === "production") {
+    const problems = productionProblems(c);
+    if (problems.length) throw new Error(`Configuração insegura para produção:\n${problems.map((p) => `  • ${p}`).join("\n")}`);
   }
   if (!!c.STRIPE_SECRET_KEY !== !!c.STRIPE_WEBHOOK_SECRET) {
     throw new Error("Configure STRIPE_SECRET_KEY e STRIPE_WEBHOOK_SECRET juntas (ou nenhuma, para desativar pagamentos).");
@@ -49,4 +59,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     corsOrigins: c.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean),
     isProd: c.NODE_ENV === "production",
   };
+}
+
+/** O que impede subir em produção. Exportado para teste. */
+export function productionProblems(c: z.infer<typeof envSchema>): string[] {
+  const out: string[] = [];
+  const secret = c.JWT_ACCESS_SECRET;
+  if (secret.startsWith("troque-este") || secret.includes("segredo-de-teste")) out.push("JWT_ACCESS_SECRET é o valor de exemplo: gere um novo.");
+  if (new Set(secret).size < 16) out.push("JWT_ACCESS_SECRET tem pouca variedade de caracteres: gere um aleatório (48 bytes).");
+  try {
+    const db = new URL(c.DATABASE_URL);
+    if (["vanta", "postgres", "password", ""].includes(decodeURIComponent(db.password))) out.push("DATABASE_URL usa a senha de desenvolvimento.");
+  } catch { /* já validado como URL */ }
+  if (!c.PUBLIC_APP_URL.startsWith("https://") && !c.ALLOW_INSECURE_HTTP) out.push("PUBLIC_APP_URL precisa ser https:// (ou ALLOW_INSECURE_HTTP=true só para teste local).");
+  if (c.CORS_ORIGINS.split(",").some((o) => o.trim() === "*")) out.push("CORS_ORIGINS não pode ser *.");
+  if (!c.SMTP_HOST) out.push("SMTP_HOST é obrigatório (sem ele os links de e-mail iriam para o log).");
+  return out;
 }
