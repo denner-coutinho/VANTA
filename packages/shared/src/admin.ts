@@ -33,6 +33,11 @@ const SUPER: AdminPermission[] = [...ADMIN, "roles.manage"];
 
 export const ROLE_PERMISSIONS: Record<UserRole, readonly AdminPermission[]> = { PLAYER: [], MODERATOR: MOD, ADMIN, SUPERADMIN: SUPER };
 
+/** Cargos da equipe só usam o painel com a verificação em duas etapas ligada e confirmada na sessão. */
+export function roleRequiresMfa(role: UserRole): boolean {
+  return role !== "PLAYER";
+}
+
 export function hasPermission(role: UserRole, p: AdminPermission): boolean {
   return ROLE_PERMISSIONS[role].includes(p);
 }
@@ -165,6 +170,8 @@ export interface AdminUserDetail extends AdminUserRow {
   /** Só para quem tem users.viewEmail; para os outros vem mascarado. */
   email: string;
   emailVerified: boolean;
+  /** Verificação em duas etapas ligada. */
+  mfaEnabled: boolean;
   title: string | null;
   balance: number;
   stats: { matchesPlayed: number; wins: number; losses: number; kills: number; deaths: number };

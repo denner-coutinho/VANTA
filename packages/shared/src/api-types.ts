@@ -8,6 +8,8 @@ export interface PublicUser {
   email: string;
   emailVerified: boolean;
   role: UserRole;
+  /** Verificação em duas etapas ligada. */
+  mfaEnabled: boolean;
   createdAt: string;
 }
 
@@ -42,6 +44,37 @@ export interface AuthResponse {
   expiresIn: number;
   user: PublicUser;
 }
+
+/** Login de conta com verificação em duas etapas: falta o código do app (ou um de recuperação). */
+export interface MfaChallengeResponse {
+  mfaRequired: true;
+  /** Vale só para POST /auth/login/mfa, por poucos minutos e poucas tentativas. */
+  mfaToken: string;
+  expiresIn: number;
+}
+export type LoginResponse = AuthResponse | MfaChallengeResponse;
+
+export interface MfaStatus {
+  enabled: boolean;
+  enabledAt: string | null;
+  /** O cargo (moderador ou acima) exige a verificação para usar o painel. */
+  required: boolean;
+  /** Esta sessão passou pela segunda etapa. */
+  sessionVerified: boolean;
+  recoveryCodesLeft: number;
+}
+export interface MfaSetupResponse {
+  /** Segredo em base32, para digitar no app se a câmera não funcionar. */
+  secret: string;
+  otpauthUrl: string;
+  /** QR code do otpauthUrl como imagem SVG (data URL), gerado no servidor. */
+  qrDataUrl: string;
+}
+export interface MfaCodesResponse {
+  /** Mostrados uma única vez: o servidor guarda só o hash. */
+  recoveryCodes: string[];
+}
+export type MfaEnableResponse = AuthResponse & MfaCodesResponse;
 
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: unknown };

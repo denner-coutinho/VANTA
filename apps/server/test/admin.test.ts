@@ -3,7 +3,7 @@ import { GAME_PROTOCOL_VERSION, WEAPON_CATALOG, type PlayerMatchStats, type Soci
 import { GameServer } from "../src/game/server.js";
 import type { MatchResult } from "../src/game/match.js";
 import { TestClient } from "./game-helpers.js";
-import { closeTestContext, createTestContext, newPlayer, resetState, type TestContext } from "./helpers.js";
+import { closeTestContext, enableMfa, createTestContext, newPlayer, resetState, type TestContext } from "./helpers.js";
 
 let ctx: TestContext;
 let gs: GameServer;
@@ -34,8 +34,13 @@ type Role = "PLAYER" | "MODERATOR" | "ADMIN" | "SUPERADMIN";
 async function user(role: Role = "PLAYER") {
   const body = newPlayer();
   const j = (await ctx.app.inject({ method: "POST", url: "/auth/register", payload: body })).json();
-  if (role !== "PLAYER") await ctx.prisma.user.update({ where: { id: j.user.id }, data: { role } });
-  return { id: j.user.id as string, username: j.user.username as string, email: body.email, password: body.password, token: j.accessToken as string, h: { authorization: `Bearer ${j.accessToken}` } };
+  let token = j.accessToken as string;
+  if (role !== "PLAYER") {
+    await ctx.prisma.user.update({ where: { id: j.user.id }, data: { role } });
+    // Cargo da equipe só usa o painel com a verificação em duas etapas.
+    token = (await enableMfa(ctx, token, body.password)).token;
+  }
+  return { id: j.user.id as string, username: j.user.username as string, email: body.email, password: body.password, token, h: { authorization: `Bearer ${token}` } };
 }
 type U = Awaited<ReturnType<typeof user>>;
 const get = (u: U, path: string) => ctx.app.inject({ method: "GET", url: path, headers: u.h });

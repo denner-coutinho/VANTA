@@ -182,6 +182,28 @@ export class AdminService {
     return r;
   }
 
+  /**
+   * Quem perdeu o celular e os códigos de recuperação: o superadmin desliga a verificação da conta
+   * (depois de confirmar a identidade por fora). Encerra as sessões da pessoa e fica na auditoria.
+   */
+  async resetMfa(actor: Actor, userId: string, reason: string) {
+    if (!hasPermission(actor.role, "roles.manage")) throw Errors.forbidden();
+    const r = await this.db.$transaction(async (tx) => {
+      const target = await this.targetFor(tx, actor, userId);
+      const full = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { totpEnabledAt: true } });
+      if (!full.totpEnabledAt) throw Errors.badRequest("MFA_NOT_ENABLED", "Esta conta não tem a verificação em duas etapas ligada.");
+      const now = new Date();
+      await tx.user.update({ where: { id: userId }, data: { totpSecretEnc: null, totpEnabledAt: null, totpLastStep: null, totpPendingEnc: null, totpPendingAt: null, tokenVersion: { increment: 1 } } });
+      await tx.mfaRecoveryCode.deleteMany({ where: { userId } });
+      await tx.authSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now, revokedReason: "MFA_RESET_BY_STAFF" } });
+      await tx.securityEvent.create({ data: { userId, type: "MFA_RESET_BY_STAFF", ip: actor.ip, meta: { by: actor.userId } } });
+      await this.audit(tx, actor, "mfa.reset", "User", userId, { before: { mfa: true }, after: { mfa: false, reason, username: target.username } });
+      return { ok: true };
+    });
+    await this.publish({ userId, kind: "account" });
+    return r;
+  }
+
   async userDetail(actor: Actor, userId: string) {
     const u = await this.db.user.findUnique({
       where: { id: userId },
@@ -214,6 +236,7 @@ export class AdminService {
       openReports,
       email: canEmail ? u.email : maskEmail(u.email),
       emailVerified: !!u.emailVerifiedAt,
+      mfaEnabled: !!u.totpEnabledAt,
       title: u.profile?.title ?? null,
       balance: u.wallet?.balance ?? 0,
       stats: { matchesPlayed: u.profile?.matchesPlayed ?? 0, wins: u.profile?.wins ?? 0, losses: u.profile?.losses ?? 0, kills: u.profile?.kills ?? 0, deaths: u.profile?.deaths ?? 0 },

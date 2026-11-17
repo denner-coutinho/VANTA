@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { AuthResponse, LoginInput, MeResponse, RegisterInput } from "@vanta/shared";
+import type { AuthResponse, LoginInput, LoginResponse, MeResponse, RegisterInput } from "@vanta/shared";
 import { api } from "../api/client";
 import { pullAccountSettings } from "../screens/SettingsPanel";
 
@@ -8,7 +8,11 @@ type Status = "checking" | "anonymous" | "authenticated";
 interface AuthState {
   status: Status;
   me: MeResponse | null;
-  login(input: LoginInput): Promise<void>;
+  /** Conta com verificação em duas etapas: devolve o desafio para a segunda etapa (sem sessão ainda). */
+  login(input: LoginInput): Promise<{ mfaToken: string } | null>;
+  loginMfa(mfaToken: string, code: string): Promise<void>;
+  /** Sessão nova devolvida pelo servidor (ligar/desligar a verificação troca a sessão). */
+  applySession(r: AuthResponse): Promise<void>;
   register(input: RegisterInput): Promise<void>;
   logout(): Promise<void>;
   logoutAll(): Promise<void>;
@@ -64,7 +68,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthState>(() => ({
     status,
     me,
-    login: async (input) => afterAuth(await api.post<AuthResponse>("/auth/login", input, { auth: false })),
+    login: async (input) => {
+      const r = await api.post<LoginResponse>("/auth/login", input, { auth: false });
+      if ("mfaRequired" in r) return { mfaToken: r.mfaToken };
+      await afterAuth(r);
+      return null;
+    },
+    loginMfa: async (mfaToken, code) => afterAuth(await api.post<AuthResponse>("/auth/login/mfa", { mfaToken, code }, { auth: false })),
+    applySession: afterAuth,
     register: async (input) => afterAuth(await api.post<AuthResponse>("/auth/register", input, { auth: false })),
     logout: async () => {
       await api.post("/auth/logout").catch(() => undefined);

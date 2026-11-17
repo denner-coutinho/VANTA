@@ -1,13 +1,15 @@
 import fp from "fastify-plugin";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { UserRole } from "@vanta/shared";
-import { Errors } from "../lib/errors.js";
+import { roleRequiresMfa, type UserRole } from "@vanta/shared";
+import { AppError, Errors } from "../lib/errors.js";
 
 export interface AccessTokenPayload {
   sub: string;
   role: UserRole;
   /** Versão de token do usuário: incrementada em troca de senha / logout global. */
   tv: number;
+  /** Sessão aberta com a segunda etapa (código do app ou de recuperação). */
+  mfa?: boolean;
 }
 
 declare module "@fastify/jwt" {
@@ -21,9 +23,11 @@ declare module "fastify" {
   interface FastifyInstance {
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireRole: (...roles: UserRole[]) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /** Cargo da equipe sem a segunda etapa nesta sessão: 403 MFA_REQUIRED. */
+    assertStaffMfa: (req: FastifyRequest) => void;
   }
   interface FastifyRequest {
-    auth: { userId: string; role: UserRole };
+    auth: { userId: string; role: UserRole; mfa: boolean };
   }
 }
 
@@ -44,11 +48,17 @@ export const authPlugin = fp(async (app) => {
     } catch {
       throw Errors.unauthorized("Sessão expirada ou inválida.");
     }
-    const user = await app.prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, role: true, status: true, tokenVersion: true } });
+    const user = await app.prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, role: true, status: true, tokenVersion: true, totpEnabledAt: true } });
     if (!user || user.tokenVersion !== payload.tv || (user.status !== "ACTIVE")) {
       throw Errors.unauthorized("Sessão expirada ou inválida.");
     }
-    req.auth = { userId: user.id, role: user.role };
+    req.auth = { userId: user.id, role: user.role, mfa: payload.mfa === true && !!user.totpEnabledAt };
+  });
+
+  app.decorate("assertStaffMfa", (req: FastifyRequest) => {
+    if (roleRequiresMfa(req.auth.role) && !req.auth.mfa) {
+      throw new AppError(403, "MFA_REQUIRED", "O painel da equipe exige a verificação em duas etapas. Ligue em Perfil › Verificação em duas etapas (tela Segurança) e entre de novo com o código.");
+    }
   });
 
   app.decorate("requireRole", (...roles: UserRole[]) => {
@@ -56,6 +66,7 @@ export const authPlugin = fp(async (app) => {
     return async (req: FastifyRequest, reply: FastifyReply) => {
       await app.authenticate(req, reply);
       if (ROLE_RANK[req.auth.role] < min) throw Errors.forbidden();
+      app.assertStaffMfa(req);
     };
   });
 });

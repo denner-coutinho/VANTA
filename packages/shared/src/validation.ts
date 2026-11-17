@@ -34,6 +34,16 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+/** Código de 6 dígitos do app autenticador. */
+export const totpCodeSchema = z.string().trim().regex(/^\d{6}$/, "Digite os 6 números do app autenticador.");
+/** Código do app (6 dígitos) ou de recuperação (XXXXX-XXXXX). */
+export const mfaCodeSchema = z.string().trim().min(6).max(20).regex(/^(\d{6}|[A-Za-z0-9]{5}-?[A-Za-z0-9]{5})$/, "Código inválido.");
+export const loginMfaSchema = z.object({ mfaToken: z.string().min(20).max(200), code: mfaCodeSchema });
+export const mfaSetupSchema = z.object({ password: z.string().min(1).max(128) });
+export const mfaEnableSchema = z.object({ code: totpCodeSchema });
+export const mfaDisableSchema = z.object({ password: z.string().min(1).max(128), code: mfaCodeSchema });
+export const mfaRegenerateSchema = z.object({ code: totpCodeSchema });
+
 export const forgotPasswordSchema = z.object({ email: emailSchema });
 export const resetPasswordSchema = z.object({ token: z.string().min(20).max(200), password: passwordSchema });
 export const verifyEmailSchema = z.object({ token: z.string().min(20).max(200) });

@@ -32,7 +32,12 @@ export interface IssuedSession {
   user: User;
   refreshToken: string;
   refreshExpiresAt: Date;
+  /** Sessão aberta com a segunda etapa (vai no token de acesso como "mfa"). */
+  mfa: boolean;
 }
+
+/** Resultado da senha: sessão pronta, ou falta o código do app (conta com a verificação ligada). */
+export type LoginOutcome = { kind: "session"; session: IssuedSession } | { kind: "mfa"; user: User };
 
 export function toPublicUser(u: User): PublicUser {
   return {
@@ -41,6 +46,7 @@ export function toPublicUser(u: User): PublicUser {
     email: u.email,
     emailVerified: !!u.emailVerifiedAt,
     role: u.role,
+    mfaEnabled: !!u.totpEnabledAt,
     createdAt: u.createdAt.toISOString(),
   };
 }
@@ -101,7 +107,7 @@ export class AuthService {
 
   // ───────────── Login ─────────────
 
-  async login(input: LoginInput, meta: ClientMeta): Promise<IssuedSession> {
+  async login(input: LoginInput, meta: ClientMeta): Promise<LoginOutcome> {
     const identifier = input.identifier.trim().toLowerCase();
     const user = identifier.includes("@")
       ? await this.prisma.user.findUnique({ where: { email: identifier } })
@@ -123,10 +129,21 @@ export class AuthService {
     }
 
     await this.assertAccountUsable(user);
+    if (user.totpEnabledAt) {
+      // O contador de falhas só zera depois do código: senha certa não dá tentativas novas de código.
+      await this.logSecurity(user.id, "LOGIN_PASSWORD_OK_MFA_PENDING", meta);
+      return { kind: "mfa", user };
+    }
     await this.throttle.registerSuccess(throttleKey, meta.ip);
+    return { kind: "session", session: await this.finishLogin(user, meta, false) };
+  }
+
+  /** Abre a sessão depois da senha (e do código, quando a conta tem a verificação ligada). */
+  async finishLogin(user: User, meta: ClientMeta, mfa: boolean): Promise<IssuedSession> {
+    await this.assertAccountUsable(user);
     const updated = await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date(), lastSeenAt: new Date() } });
-    await this.logSecurity(user.id, "LOGIN_SUCCESS", meta);
-    return this.createSession(updated, meta);
+    await this.logSecurity(user.id, mfa ? "LOGIN_SUCCESS_MFA" : "LOGIN_SUCCESS", meta);
+    return this.createSession(updated, meta, undefined, mfa);
   }
 
   /** Conta banida/suspensa não pode entrar. Suspensões expiradas são liberadas automaticamente. */
@@ -150,7 +167,7 @@ export class AuthService {
 
   // ───────────── Sessões e refresh tokens ─────────────
 
-  private async createSession(user: User, meta: ClientMeta, familyId?: string): Promise<IssuedSession> {
+  async createSession(user: User, meta: ClientMeta, familyId?: string, mfa = false): Promise<IssuedSession> {
     const refreshToken = randomToken(32);
     const refreshExpiresAt = new Date(Date.now() + this.config.REFRESH_TOKEN_TTL_DAYS * 86400 * 1000);
     await this.prisma.authSession.create({
@@ -161,9 +178,10 @@ export class AuthService {
         ip: meta.ip,
         userAgent: meta.userAgent,
         expiresAt: refreshExpiresAt,
+        mfa,
       },
     });
-    return { user, refreshToken, refreshExpiresAt };
+    return { user, refreshToken, refreshExpiresAt, mfa };
   }
 
   /**
@@ -194,7 +212,8 @@ export class AuthService {
     });
     if (count === 0) throw Errors.unauthorized("Sessão inválida. Faça login novamente.");
 
-    const next = await this.createSession(session.user, meta, session.familyId);
+    // A segunda etapa só continua valendo se a verificação seguir ligada.
+    const next = await this.createSession(session.user, meta, session.familyId, session.mfa && !!session.user.totpEnabledAt);
     await this.prisma.user.update({ where: { id: session.userId }, data: { lastSeenAt: new Date() } });
     return next;
   }

@@ -4,7 +4,7 @@ import { GameServer } from "../src/game/server.js";
 import type { MatchResult } from "../src/game/match.js";
 import { closeSeason, startSeason } from "../src/modules/ranked/season.service.js";
 import { TestClient } from "./game-helpers.js";
-import { closeTestContext, createTestContext, newPlayer, resetState, type TestContext } from "./helpers.js";
+import { closeTestContext, createTestContext, enableMfa, newPlayer, resetState, type TestContext } from "./helpers.js";
 
 let ctx: TestContext;
 let gs: GameServer;
@@ -35,8 +35,12 @@ beforeEach(async () => {
 async function register(role?: "ADMIN") {
   const res = await ctx.app.inject({ method: "POST", url: "/auth/register", payload: newPlayer() });
   const j = res.json();
-  if (role) await ctx.prisma.user.update({ where: { id: j.user.id }, data: { role } });
-  return { token: j.accessToken as string, userId: j.user.id as string, username: j.user.username as string, auth: { authorization: `Bearer ${j.accessToken}` } };
+  let token = j.accessToken as string;
+  if (role) {
+    await ctx.prisma.user.update({ where: { id: j.user.id }, data: { role: role } });
+    token = (await enableMfa(ctx, token)).token;
+  }
+  return { token, userId: j.user.id as string, username: j.user.username as string, auth: { authorization: `Bearer ${token}` } };
 }
 type Player = Awaited<ReturnType<typeof register>>;
 

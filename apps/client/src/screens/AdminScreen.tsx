@@ -42,11 +42,15 @@ export function AdminScreen() {
   const tab = (params.get("aba") as Tab) || "overview";
   const [me, setMe] = useState<AdminMeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [needMfa, setNeedMfa] = useState(false);
   const [userId, setUserId] = useState<string | null>(params.get("jogador"));
   const [reportId, setReportId] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<AdminMeResponse>("/admin/me").then(setMe).catch((e: Error) => setError(e.message));
+    api.get<AdminMeResponse>("/admin/me").then(setMe).catch((e: Error & { code?: string }) => {
+      setNeedMfa(e.code === "MFA_REQUIRED");
+      setError(e.message);
+    });
   }, []);
 
   const go = (t: Tab) => {
@@ -61,7 +65,7 @@ export function AdminScreen() {
     setParams({ aba: "users", jogador: id }, { replace: true });
   };
 
-  if (error) return <div className="screen play-screen"><div className="play-wrap"><p className="error" data-testid="admin-denied">{error}</p><Button onClick={() => navigate("/menu")}>Voltar ao menu</Button></div></div>;
+  if (error) return <div className="screen play-screen"><div className="play-wrap"><p className="error" data-testid="admin-denied">{error}</p><div className="row-gap">{needMfa && <Button onClick={() => navigate("/seguranca")} data-testid="admin-setup-mfa">Ligar a verificação em duas etapas</Button>}<Button variant="ghost" onClick={() => navigate("/menu")}>Voltar ao menu</Button></div></div></div>;
   if (!me) return <div className="screen play-screen"><div className="play-wrap"><p className="muted">Carregando…</p></div></div>;
 
   return (
@@ -269,6 +273,7 @@ function UserDetail({ me, id, onBack }: { me: AdminMeResponse; id: string; onBac
   const [items, setItems] = useState<Array<{ id: string; name: string; type: string }>>([]);
   const [grant, setGrant] = useState({ storeItemId: "", reason: "" });
   const [busy, setBusy] = useState(false);
+  const [mfaReason, setMfaReason] = useState("");
   const [revokeFor, setRevokeFor] = useState<string | null>(null);
   const [revokeReason, setRevokeReason] = useState("");
   const load = useCallback(() => api.get<AdminUserDetail>(`/admin/users/${id}`).then((d) => { setU(d); setRole(d.role); }).catch((e: Error) => setErr(e.message)), [id]);
@@ -304,7 +309,13 @@ function UserDetail({ me, id, onBack }: { me: AdminMeResponse; id: string; onBac
       <Button variant="ghost" onClick={onBack}>← Jogadores</Button>
       <div className="panel cut room-list-panel">
         <h2 data-testid="user-name">{u.username} <span className="muted small">{ROLE_LABEL[u.role]} · nível {u.level}</span></h2>
-        <p className="small">Conta: <b className={u.status === "ACTIVE" ? "" : "error"} data-testid="user-status">{STATUS_LABEL[u.status]}</b> · E-mail: <span data-testid="user-email">{u.email}</span> {u.emailVerified ? "(verificado)" : "(não verificado)"}</p>
+        <p className="small">Conta: <b className={u.status === "ACTIVE" ? "" : "error"} data-testid="user-status">{STATUS_LABEL[u.status]}</b> · E-mail: <span data-testid="user-email">{u.email}</span> {u.emailVerified ? "(verificado)" : "(não verificado)"} · Verificação em duas etapas: <b data-testid="user-mfa">{u.mfaEnabled ? "ligada" : "desligada"}</b></p>
+        {u.mfaEnabled && canTouch && hasPermission(me.role, "roles.manage") && (
+          <span className="row-gap">
+            <input className="input" placeholder="Motivo (identidade confirmada como?)" value={mfaReason} onChange={(e) => setMfaReason(e.target.value)} data-testid="mfa-reset-reason" />
+            <button className="btn-mini ghost" disabled={busy || mfaReason.trim().length < 5} onClick={() => void act(() => api.post(`/admin/users/${u.id}/mfa/reset`, { reason: mfaReason }), "Verificação desligada; a pessoa entra só com a senha e pode ligar de novo.").then(() => setMfaReason(""))} data-testid="mfa-reset">Desligar verificação (perdeu o celular)</button>
+          </span>
+        )}
         <p className="small muted">Criada em {when(u.createdAt)} · vista em {when(u.lastSeenAt)} · saldo {u.balance.toLocaleString("pt-BR")} VC · {u.stats.matchesPlayed} partidas ({u.stats.wins}V/{u.stats.losses}D) · {u.stats.kills}/{u.stats.deaths} K/D</p>
         <Link to={`/jogador/${encodeURIComponent(u.username)}`} className="small">Ver perfil público</Link>
       </div>
