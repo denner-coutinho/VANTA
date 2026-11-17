@@ -57,7 +57,8 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
       (config.isProd
         ? { level: "info", redact: ["req.headers.authorization", "req.headers.cookie"] }
         : { level: "info", transport: { target: "pino-pretty", options: { translateTime: "HH:MM:ss" } }, redact: ["req.headers.authorization", "req.headers.cookie"] }),
-    trustProxy: config.TRUST_PROXY,
+    // Número = quantos proxies na frente são confiáveis (o IP real é o primeiro antes deles).
+    trustProxy: typeof config.TRUST_PROXY === "number" ? (_addr: string, hop: number) => hop < (config.TRUST_PROXY as number) : config.TRUST_PROXY,
     bodyLimit: 64 * 1024,
   });
 

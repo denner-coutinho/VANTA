@@ -11,7 +11,7 @@
     "dev": "pnpm -r --parallel --filter @vanta/server --filter @vanta/client run \"/^dev(:game)?$/\"",
     "dev:server": "pnpm --filter @vanta/server dev",
     "dev:client": "pnpm --filter @vanta/client dev",
-    "build": "pnpm --filter @vanta/shared build && pnpm --filter @vanta/db build && pnpm -r --filter ./apps/* build",
+    "build": "pnpm --filter @vanta/shared build && pnpm --filter @vanta/db build && pnpm --filter @vanta/server --filter @vanta/client build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "db:generate": "pnpm --filter @vanta/db generate",

@@ -333,5 +333,32 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **O espectador e o replay usam teclas fixas** (Q/E troca, F câmera livre, WASD na câmera livre); as teclas remapeáveis valem no jogo e no treino.
 - **Sem painel de conteúdo** (criar armas, mapas ou itens da loja pela interface): isso continua no seed e nas migrações.
 
-## Fase 8 ⏳
-Finalização (carga, segurança, Docker, CI, deploy).
+## Fase 8 — Finalização 🔄 (em andamento)
+
+### Parte 1 — Docker, CI e segurança ✅ (17/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **Imagens Docker** (um `Dockerfile`, alvos `server`, `migrate` e `web`): API e jogo com só as dependências de produção do servidor (~170 MB compactada), usuário sem root; cliente servido pelo nginx (~22 MB) com proxy para `/api` e `/game` (WebSocket) | ✅ | Build local das 3 imagens |
+| **`docker-compose.prod.yml`**: Postgres e Redis (com senha) sem porta exposta, migração + seed como passo único, healthchecks em tudo, API e jogo com sistema de arquivos somente leitura, sem capabilities e `no-new-privileges` | ✅ | Pilha subiu com `--wait`; E2E de cadastro, login, recuperação de senha e troca de operador **pelo nginx**; e-mails entregues por SMTP; partida 1v1 criada pelo proxy WebSocket; `create-admin` dentro da pilha |
+| **Configuração de produção recusa o inseguro**: segredo de exemplo ou fraco, senha de banco de dev, `PUBLIC_APP_URL` sem https, `CORS_ORIGINS=*`, falta de SMTP | ✅ | `test/config.test.ts` |
+| **IP real atrás do proxy**: `TRUST_PROXY` virou número de proxies confiáveis; com `true` o IP dos limites de taxa podia ser falsificado por `X-Forwarded-For` | ✅ | Pedido com `X-Forwarded-For` falso registrado com o IP real |
+| **Correção**: `TRUST_PROXY=false` virava verdadeiro (conversão de texto para booleano) | ✅ | Teste |
+| **Dependências**: nodemailer 7 → 10.6 (20 alertas, 4 altos, de injeção SMTP e travamento por regex) | ✅ | `pnpm audit --prod`: sobra 1 (abaixo) |
+| **Cabeçalhos**: CSP restrita no cliente, `frame-ancestors 'none'`, política de permissões; a API usa os do helmet sem duplicar | ✅ | `curl -I` |
+| **Nada secreto no cliente**: varredura do build por chaves, URLs de banco e segredos | ✅ | Nenhuma ocorrência |
+| **CI** (`.github/workflows/ci.yml`): typecheck, testes com Postgres e Redis reais, build, auditoria (falha em crítica), build das imagens e pilha de produção com verificação de saúde | ✅ | Mesmos comandos rodados aqui; **a primeira execução no GitHub acontece neste PR** |
+| **Guia de deploy** (`docs/DEPLOY.md`): configurar, subir, primeiro superadmin, atualizar, backup e restauração | ✅ | Comandos testados na pilha local |
+| E2E de fumaça atualizado (o botão Salas não está mais "em breve") | ✅ | `e2e-smoke` passa no dev e na pilha de produção |
+
+**Testes:** 145 no servidor (3 novos), 102 no shared, 11 no cliente.
+
+#### Limites honestos da parte 1
+- **Não foi feito deploy num provedor real.** Este ambiente não tem conta de nuvem nem domínio. O pacote está pronto e testado localmente; subir de verdade gera custo e exposição pública, então depende da sua escolha de provedor e autorização.
+- **Um alerta alto sobra**: `deepmerge-ts` dentro da CLI do Prisma (usada só para ler a configuração na migração, sem entrada de usuário). Some quando o Prisma atualizar.
+- **O Prisma avisa que não detectou o OpenSSL** na imagem slim (o build não consegue baixar pacotes do Debian aqui). As consultas funcionam com o motor padrão (testado), mas o aviso aparece no log.
+- **Os E2Es de jogabilidade não rodam contra a imagem de produção**: usam ganchos de depuração que só existem no build de desenvolvimento.
+- **Um único servidor de jogo** (estado vivo em memória) e **replays no Postgres**: próximas partes.
+
+### Próximas partes ⏳
+Teste de carga e métricas · estado do jogo no Redis para vários servidores · 2FA para cargos administrativos · revisão final.
