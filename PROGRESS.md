@@ -384,5 +384,28 @@ de 60 Hz; com 600 ele encosta em um núcleo inteiro. Tabela completa em `docs/LO
 - **Os clientes de carga não são jogadores** e não miram (andam e atiram ao acaso); servem só para medir o servidor e nunca aparecem como jogadores reais.
 - **Um processo de jogo** continua sendo o limite: passar de ~400 jogadores depende da próxima parte.
 
+### Parte 3 — Vários servidores de jogo ✅ (17/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **Cada processo de jogo é um nó** (`GAME_NODE_ID`); o Redis guarda os nós vivos (batida a cada 2 s), onde cada conta está, a fila global, a liderança do matchmaking e a lista de salas | ✅ | `apps/server/src/game/cluster.ts` |
+| **Fila única entre nós**: um nó líder (trava no Redis) junta os tickets de todos os nós e cria a partida no nó que já tem mais jogadores dela; quem está em outro nó recebe `{t:"redirect"}` e o cliente reconecta lá sozinho | ✅ | `test/cluster.test.ts` |
+| Recarregar a página e cair no nó errado leva de volta ao nó da partida, do grupo ou da sala | ✅ | idem |
+| **Uma conexão por conta também entre nós** (a conexão antiga é derrubada) | ✅ | idem |
+| **Presença de amigos**, **convite de grupo** e **salas** (lista, senha conferida no nó da sala, entrada) entre nós | ✅ | idem |
+| nginx encaminha `/game?node=gameN` direto ao nó (só nomes `gameN`, nada de encaminhar para outro host); conexão nova vai para qualquer nó | ✅ | `scripts/e2e-cluster.mjs`: 6/6 pela pilha de produção com `game1` e `game2` |
+| Sem `GAME_NODE_ID` continua tudo num processo só, como antes (os testes antigos rodam assim) | ✅ | 157 testes do servidor |
+
+**Testes:** 157 no servidor (5 novos com dois nós reais no mesmo Redis), typecheck limpo, E2E pela pilha de produção com dois nós.
+
+#### Limites honestos da parte 3
+- **Se um nó cair, as partidas, grupos e salas dele se perdem** (vivem na memória do nó). Os jogadores voltam ao menu e
+  reconectam em outro nó; a partida não é retomada.
+- **Grupo e partida em nós diferentes:** a partida vai para o nó com mais jogadores dela (grupo pesa mais na escolha),
+  mas se ela ficar em outro nó o grupo pode se desfazer depois dos 60 s de tolerância.
+- **O `game1` é obrigatório** e o compose traz até o `game2`; mais nós exigem acrescentar serviços (veja `docs/DEPLOY.md`).
+- **Corrida rara:** cancelar a fila no mesmo instante em que a partida é formada ainda pode colocar o jogador na partida.
+- **Não testado com carga em vários nós**: a capacidade continua medida por processo (~400 jogadores cada).
+
 ### Próximas partes ⏳
-Estado do jogo no Redis para vários servidores · 2FA para cargos administrativos · revisão final.
+2FA para cargos administrativos · revisão final.

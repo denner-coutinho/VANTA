@@ -62,14 +62,34 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
 
+  # Servidor de jogo. Cada processo é um "nó" (GAME_NODE_ID); partidas, grupos e salas vivem num nó e o
+  # Redis coordena os nós. Mais capacidade: suba também o game2 (--profile scale); veja docs/DEPLOY.md.
   game:
     image: vanta-frontline/server:${VANTA_VERSION:-local}
     command: ["node", "dist/game-main.js"]
     restart: unless-stopped
     init: true
-    environment: *app-env
+    environment: { <<: *app-env, GAME_NODE_ID: game1 }
+    networks: { default: { aliases: [game1] } }
     depends_on:
       api: { condition: service_healthy }
+    healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"], interval: 10s, retries: 6, start_period: 10s }
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+  game2:
+    profiles: [scale]
+    image: vanta-frontline/server:${VANTA_VERSION:-local}
+    command: ["node", "dist/game-main.js"]
+    restart: unless-stopped
+    init: true
+    environment: { <<: *app-env, GAME_NODE_ID: game2 }
+    # "game" é o nome que o nginx usa para distribuir conexões novas entre os nós.
+    networks: { default: { aliases: [game, game2] } }
+    depends_on:
+      game: { condition: service_healthy }
     healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"], interval: 10s, retries: 6, start_period: 10s }
     read_only: true
     tmpfs: [/tmp]

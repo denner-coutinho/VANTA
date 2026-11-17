@@ -29,10 +29,18 @@ class GameSocket {
   spectate: SpectatorInfo | null = null;
   rtt = 0;
   private pingTimer: number | null = null;
+  /** Nó de jogo para onde o servidor mandou (vários servidores de jogo). */
+  private node: { id: string; url?: string } | null = null;
+  private redirecting = false;
 
   private url() {
     const base = (import.meta.env.VITE_GAME_URL as string | undefined) ?? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/game`;
-    return base;
+    if (!this.node) return base;
+    // Sem proxy (desenvolvimento), o servidor informa a URL do nó; com o nginx, basta ?node=.
+    if (this.node.url && /^wss?:\/\//.test(this.node.url)) return this.node.url;
+    const u = new URL(base, location.href);
+    u.searchParams.set("node", this.node.id);
+    return u.toString();
   }
 
   private setStatus(s: SocketStatus) {
@@ -96,6 +104,12 @@ class GameSocket {
         this.spectate = msg.info;
       } else if (msg.t === "spec_end") {
         this.spectate = null;
+      } else if (msg.t === "redirect") {
+        // A partida, o grupo ou a sala está em outro nó: reconecta lá na hora.
+        this.node = { id: msg.node, ...(msg.url ? { url: msg.url } : {}) };
+        this.redirecting = true;
+        ws.close(1000);
+        return;
       } else if (msg.t === "pong") {
         this.rtt = performance.now() - msg.n;
       } else if (msg.t === "snap" && msg.ev.some((ev) => ev.k === "match_end")) {
@@ -107,6 +121,13 @@ class GameSocket {
       if (this.ws !== ws) return;
       this.ws = null;
       this.stopPing();
+      if (this.redirecting) {
+        this.redirecting = false;
+        if (this.wanted) void this.open();
+        return;
+      }
+      // O nó indicado parou de responder: volta para o endereço geral (o servidor redireciona se preciso).
+      if (this.node && this.retry >= 1) this.node = null;
       // 4001: sessão inválida (tenta renovar o token uma vez); 4004: outra aba assumiu.
       if (e.code === 4004 || e.code === 4003 || e.code === 4009) {
         this.wanted = false;

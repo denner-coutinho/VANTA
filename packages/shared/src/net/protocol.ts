@@ -327,6 +327,8 @@ export type ServerMessage =
   | { t: "match"; info: MatchInfo }
   | Snapshot
   | { t: "pong"; n: number; tick: number }
+  /** Vários servidores de jogo: reconecte em outro nó (sua partida, grupo ou sala está lá). `url` só fora do proxy. */
+  | { t: "redirect"; node: string; url?: string }
   | { t: "left_match" }
   | { t: "error"; code: string; message: string; fatal?: boolean }
   /** Presença dos amigos: lista completa logo após o welcome, depois só o que mudou. */
