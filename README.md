@@ -61,6 +61,7 @@ node scripts/e2e-economy.mjs          # Fase 6: loja, compras, inventário, skin
 node scripts/e2e-social.mjs           # Fase 7: três navegadores (amigos, presença, grupo, chat, denúncia, bloqueio)
 node scripts/e2e-rooms.mjs            # Fase 7: três navegadores (sala com senha, convite, regras, partida, espectador, remover, encerrar)
 node scripts/e2e-progression.mjs      # Fase 7: partida real → XP no resultado → missão resgatada → conquista → histórico → título
+node scripts/e2e-clans.mjs            # Fase 7: clã (criar, convidar, cargos, desfazer), perfil público, cartão e rankings
 ```
 
 O teste E2E precisa do Playwright: `npm i -g playwright && npx playwright install chromium`.

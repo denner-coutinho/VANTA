@@ -24,6 +24,8 @@ import { RedisSocialBus, type SocialBus } from "./modules/social/bus.js";
 import { SocialService } from "./modules/social/social.service.js";
 import { progressionRoutes } from "./modules/progression/progression.routes.js";
 import { socialRoutes } from "./modules/social/social.routes.js";
+import { clanRoutes } from "./modules/clans/clans.routes.js";
+import { playerRoutes } from "./modules/players/players.routes.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -118,6 +120,8 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   if (!payments) app.log.warn("Stripe não configurada: compra de VANTA COINS desativada.");
   await app.register(economyRoutes, { payments });
   await app.register(progressionRoutes);
+  await app.register(clanRoutes);
+  await app.register(playerRoutes);
   await app.register(socialRoutes, { social: new SocialService(prisma, socialBus) });
 
   return app;

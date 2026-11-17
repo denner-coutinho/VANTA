@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useEffect, useState, type FormEvent } from "react";
 import { PRESENCE_LABEL, usernameSchema, type PresenceState, type RecentPlayerView, type SocialUserView } from "@vanta/shared";
 import { api } from "../api/client";
@@ -17,7 +18,7 @@ export function PresenceDot({ state }: { state: PresenceState }) {
 function Who({ u, sub }: { u: SocialUserView; sub?: React.ReactNode }) {
   return (
     <div className="who">
-      <strong>{u.username}</strong>
+      <Link to={`/jogador/${encodeURIComponent(u.username)}`} className="who-link"><strong>{u.username}</strong></Link>
       <span className="muted small">Nível {u.level}{u.character ? ` · ${u.character}` : ""}{sub ? <> · {sub}</> : null}</span>
     </div>
   );
