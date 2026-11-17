@@ -92,7 +92,9 @@ export type SocialEvent =
   | { k: "friend_removed"; userId: string }
   | { k: "request_closed"; requestId: string }
   /** Bloqueio, desbloqueio ou silêncio mudou: o servidor de jogo recarrega as listas. */
-  | { k: "relations_changed" };
+  | { k: "relations_changed" }
+  /** Punição ou cargo mudou (painel administrativo): o servidor de jogo reconfere a conta na hora. */
+  | { k: "account_changed" };
 
 // ───────────── Grupo ─────────────
 

@@ -479,6 +479,11 @@ export class GameServer {
   private onSocialEvent(to: string, ev: SocialEvent) {
     const c = this.clients.get(to);
     if (!c?.userId) return;
+    if (ev.k === "account_changed") {
+      // Suspensão/banimento derrubam a conexão agora, sem esperar a reconferência periódica.
+      void this.recheckAccounts([to]).catch((e) => this.log.error("[game] reconferência de conta", e));
+      return;
+    }
     this.send(c, { t: "social", ev });
     if (ev.k === "friend_accepted") {
       c.friends.add(ev.friend.id);
@@ -1032,6 +1037,18 @@ export class GameServer {
         this.send(c, { t: "error", code: "NO_SEASON", message: "Não há temporada ranqueada em andamento." });
         return;
       }
+      // Banimento do ranqueado (painel administrativo) vale para qualquer membro do grupo.
+      const now = new Date();
+      const rankedBan = await this.opts.prisma.ban.findFirst({
+        where: { userId: { in: members.map((m) => m.userId!).filter(Boolean) }, type: "RANKED_BAN", revokedAt: null, startsAt: { lte: now }, OR: [{ endsAt: null }, { endsAt: { gt: now } }] },
+        select: { userId: true, endsAt: true },
+      });
+      if (rankedBan) {
+        const who = rankedBan.userId === userId ? "Você está" : `${members.find((m) => m.userId === rankedBan.userId)?.username ?? "Um membro do grupo"} está`;
+        const until = rankedBan.endsAt ? ` até ${rankedBan.endsAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}` : "";
+        this.send(c, { t: "error", code: "RANKED_BANNED", message: `${who} banido do ranqueado${until}.` });
+        return;
+      }
       const cooldown = await rankedCooldownSeconds(this.opts.prisma, userId);
       if (cooldown > 0) {
         this.send(c, { t: "error", code: "RANKED_COOLDOWN", message: `Você abandonou uma partida ranqueada. Fila liberada em ${Math.ceil(cooldown / 60)} min.` });
@@ -1286,8 +1303,8 @@ export class GameServer {
   }
 
   /** Banimento/suspensão/troca de senha derrubam a conexão de jogo em até `recheckMs`. */
-  private async recheckAccounts() {
-    const ids = [...this.clients.keys()];
+  private async recheckAccounts(only?: string[]) {
+    const ids = only ?? [...this.clients.keys()];
     if (!ids.length) return;
     const users = await this.opts.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, status: true, tokenVersion: true } });
     const byId = new Map(users.map((u) => [u.id, u]));
