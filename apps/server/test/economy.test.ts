@@ -6,7 +6,7 @@ import { ledgerSum, postLedger } from "../src/modules/economy/wallet.js";
 import { closeSeason } from "../src/modules/ranked/season.service.js";
 import { GameServer } from "../src/game/server.js";
 import { TestClient } from "./game-helpers.js";
-import { closeTestContext, createTestContext, newPlayer, resetState, type TestContext } from "./helpers.js";
+import { closeTestContext, createTestContext, enableMfa, newPlayer, resetState, type TestContext } from "./helpers.js";
 import { GAME_PROTOCOL_VERSION } from "@vanta/shared";
 
 const WHSEC = "whsec_teste_economia_vanta";
@@ -33,8 +33,12 @@ async function register(opts: { verified?: boolean; role?: "ADMIN" } = {}) {
   const res = await ctx.app.inject({ method: "POST", url: "/auth/register", payload: newPlayer() });
   const j = res.json();
   if (opts.verified) await ctx.prisma.user.update({ where: { id: j.user.id }, data: { emailVerifiedAt: new Date() } });
-  if (opts.role) await ctx.prisma.user.update({ where: { id: j.user.id }, data: { role: opts.role } });
-  return { token: j.accessToken as string, userId: j.user.id as string, auth: { authorization: `Bearer ${j.accessToken}` } };
+  let token = j.accessToken as string;
+  if (opts.role) {
+    await ctx.prisma.user.update({ where: { id: j.user.id }, data: { role: opts.role } });
+    token = (await enableMfa(ctx, token)).token;
+  }
+  return { token, userId: j.user.id as string, auth: { authorization: `Bearer ${token}` } };
 }
 type P = Awaited<ReturnType<typeof register>>;
 

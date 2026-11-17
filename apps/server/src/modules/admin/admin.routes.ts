@@ -27,6 +27,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { bus: SocialBus |
     preHandler: async (req: FastifyRequest, reply: Parameters<typeof app.authenticate>[1]) => {
       await app.authenticate(req, reply);
       if (!hasPermission(req.auth.role, p)) throw Errors.forbidden();
+      app.assertStaffMfa(req);
     },
     config: { rateLimit: { max: 120, timeWindow: "1 minute" } },
   });
@@ -129,6 +130,12 @@ export async function adminRoutes(app: FastifyInstance, opts: { bus: SocialBus |
     const p = z.object({ id }).parse(req.params);
     const b = setRoleSchema.parse(req.body);
     return svc.setRole(actor(req), p.id, b.role, b.reason);
+  });
+
+  app.post("/admin/users/:id/mfa/reset", can("roles.manage"), async (req) => {
+    const p = z.object({ id }).parse(req.params);
+    const b = z.object({ reason: z.string().trim().min(5).max(300) }).parse(req.body);
+    return svc.resetMfa(actor(req), p.id, b.reason);
   });
 
   app.post("/admin/users/:id/grant", can("items.grant"), async (req) => {

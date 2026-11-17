@@ -75,6 +75,7 @@ jobs:
           POSTGRES_PASSWORD=$(gen)
           REDIS_PASSWORD=$(gen)
           JWT_ACCESS_SECRET=$(gen)$(gen)
+          MFA_ENCRYPTION_KEY=$(gen)$(gen)
           SMTP_HOST=mailpit
           SMTP_PORT=1025
           ALLOW_INSECURE_HTTP=true

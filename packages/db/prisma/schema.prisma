@@ -199,6 +199,14 @@ model User {
   tokenVersion    Int           @default(0)
   lastLoginAt     DateTime?
   lastSeenAt      DateTime?
+  /// Verificação em duas etapas (TOTP). Segredo cifrado com MFA_ENCRYPTION_KEY (nunca em texto).
+  totpSecretEnc   String?
+  totpEnabledAt   DateTime?
+  /// Último passo de 30 s aceito: o mesmo código não entra duas vezes.
+  totpLastStep    Int?
+  /// Segredo gerado no cadastro do app autenticador, ainda não confirmado com um código.
+  totpPendingEnc  String?
+  totpPendingAt   DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -236,6 +244,7 @@ model User {
   notifications      Notification[]
   adminActions       AdminAuditLog[]
   securityEvents     SecurityEvent[]
+  mfaRecoveryCodes   MfaRecoveryCode[]
   medals             UserMedal[]
   xpGrants           XpGrant[]
 
@@ -258,11 +267,26 @@ model AuthSession {
   revokedAt        DateTime?
   revokedReason    String?
   replacedById     String?
+  /// Sessão aberta com a segunda etapa (código do app ou de recuperação). Passa adiante na rotação.
+  mfa              Boolean   @default(false)
   createdAt        DateTime  @default(now())
   lastUsedAt       DateTime  @default(now())
 
   @@index([userId])
   @@index([familyId])
+}
+
+/// Códigos de recuperação da verificação em duas etapas: guardados como SHA-256, cada um vale uma vez.
+model MfaRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, codeHash])
+  @@index([userId])
 }
 
 model EmailVerificationToken {

@@ -13,6 +13,11 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default("http://localhost:5173"),
   PUBLIC_APP_URL: z.string().url().default("http://localhost:5173"),
   JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET precisa ter pelo menos 32 caracteres"),
+  /**
+   * Chave que cifra os segredos da verificação em duas etapas no banco (AES-256-GCM).
+   * Obrigatória em produção e diferente do JWT_ACCESS_SECRET. Trocar a chave invalida os apps já cadastrados.
+   */
+  MFA_ENCRYPTION_KEY: z.string().optional().default(""),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   SMTP_HOST: z.string().optional().default(""),
@@ -85,6 +90,8 @@ export function productionProblems(c: z.infer<typeof envSchema>): string[] {
   if (!c.PUBLIC_APP_URL.startsWith("https://") && !c.ALLOW_INSECURE_HTTP) out.push("PUBLIC_APP_URL precisa ser https:// (ou ALLOW_INSECURE_HTTP=true só para teste local).");
   if (c.CORS_ORIGINS.split(",").some((o) => o.trim() === "*")) out.push("CORS_ORIGINS não pode ser *.");
   if (c.METRICS_TOKEN && (c.METRICS_TOKEN.length < 24 || new Set(c.METRICS_TOKEN).size < 10)) out.push("METRICS_TOKEN curto demais: gere um aleatório (24 bytes ou mais).");
+  if (c.MFA_ENCRYPTION_KEY.length < 32 || new Set(c.MFA_ENCRYPTION_KEY).size < 16) out.push("MFA_ENCRYPTION_KEY é obrigatória (32 caracteres ou mais, aleatória): ela cifra os segredos da verificação em duas etapas.");
+  else if (c.MFA_ENCRYPTION_KEY === c.JWT_ACCESS_SECRET) out.push("MFA_ENCRYPTION_KEY precisa ser diferente do JWT_ACCESS_SECRET.");
   if (!c.SMTP_HOST) out.push("SMTP_HOST é obrigatório (sem ele os links de e-mail iriam para o log).");
   return out;
 }

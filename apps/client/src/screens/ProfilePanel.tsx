@@ -60,6 +60,13 @@ export function ProfilePanel({ onClose }: { onClose: () => void }) {
             </span>
           )}
         </div>
+        <div className="kv">
+          <span>Verificação em duas etapas</span>
+          <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <span style={{ color: me.user.mfaEnabled ? "var(--c-green)" : "var(--c-amber)" }} data-testid="profile-mfa">{me.user.mfaEnabled ? "Ligada" : "Desligada"}</span>
+            <button className="link-btn" onClick={() => navigate("/seguranca")} data-testid="open-security">Configurar</button>
+          </span>
+        </div>
         <div className="kv"><span>Membro desde</span><span>{new Date(me.user.createdAt).toLocaleDateString("pt-BR")}</span></div>
         <div style={{ marginTop: 24 }}>
           <Button variant="ghost" block onClick={() => void logoutAll()}>Encerrar sessão em todos os dispositivos</Button>

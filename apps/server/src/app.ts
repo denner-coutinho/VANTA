@@ -13,6 +13,8 @@ import { PasswordHasher } from "./lib/password.js";
 import { authPlugin } from "./plugins/auth.js";
 import { AuthService } from "./modules/auth/auth.service.js";
 import { LoginThrottle } from "./modules/auth/login-throttle.js";
+import { MfaService } from "./modules/auth/mfa.service.js";
+import { SecretBox } from "./lib/totp.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { LogMailer, SmtpMailer, type Mailer } from "./modules/mail/mailer.js";
 import { meRoutes } from "./modules/users/me.routes.js";
@@ -37,6 +39,7 @@ declare module "fastify" {
     prisma: PrismaClient;
     redis: Redis;
     authService: AuthService;
+    mfaService: MfaService;
     socialBus: SocialBus;
   }
 }
@@ -78,7 +81,11 @@ export async function buildApp(config: AppConfig, deps: AppDeps = {}): Promise<F
   app.decorate("redis", redis);
   const socialBus = deps.socialBus ?? new RedisSocialBus(config.REDIS_URL, `${config.REDIS_KEY_PREFIX}social`);
   app.decorate("socialBus", socialBus);
-  app.decorate("authService", new AuthService(prisma, new PasswordHasher(config.ARGON2_MEMORY_KIB), new LoginThrottle(redis), mailer, config));
+  const hasher = new PasswordHasher(config.ARGON2_MEMORY_KIB);
+  const throttle = new LoginThrottle(redis);
+  app.decorate("authService", new AuthService(prisma, hasher, throttle, mailer, config));
+  // Sem chave própria (só desenvolvimento e testes), deriva do segredo do JWT; produção exige a chave.
+  app.decorate("mfaService", new MfaService(prisma, redis, hasher, throttle, new SecretBox(config.MFA_ENCRYPTION_KEY || `dev-mfa:${config.JWT_ACCESS_SECRET}`)));
 
   app.addHook("onClose", async () => {
     if (!deps.prisma) await prisma.$disconnect();

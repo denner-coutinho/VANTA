@@ -22,4 +22,5 @@ await prisma.$transaction([
   prisma.adminAuditLog.create({ data: { actorId: user.id, action: "ROLE_GRANTED_CLI", targetType: "User", targetId: user.id, before: { role: user.role }, after: { role } } }),
 ]);
 console.log(`${user.username} agora é ${role}.`);
+console.log("Para usar o painel, essa pessoa precisa ligar a verificação em duas etapas (Perfil › Verificação em duas etapas) e entrar de novo com o código.");
 await prisma.$disconnect();

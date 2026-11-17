@@ -407,5 +407,28 @@ de 60 Hz; com 600 ele encosta em um núcleo inteiro. Tabela completa em `docs/LO
 - **Corrida rara:** cancelar a fila no mesmo instante em que a partida é formada ainda pode colocar o jogador na partida.
 - **Não testado com carga em vários nós**: a capacidade continua medida por processo (~400 jogadores cada).
 
+### Parte 4 — Verificação em duas etapas (2FA) para a equipe ✅ (17/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| **TOTP** (RFC 6238, 6 dígitos, 30 s), compatível com Google Authenticator, Microsoft Authenticator, Authy, 1Password, Aegis; implementado sem biblioteca de terceiros e conferido com os vetores das RFCs | ✅ | `test/mfa.test.ts` |
+| **Segredo cifrado no banco** (AES-256-GCM com `MFA_ENCRYPTION_KEY`, obrigatória em produção e diferente do segredo do JWT) | ✅ | idem + `test/config.test.ts` |
+| Cadastro pela tela **Segurança** (`/seguranca`): pede a senha de novo, QR code gerado no servidor (e chave para digitar), confirmação com um código; ligar encerra as outras sessões | ✅ | `scripts/e2e-mfa.mjs` (QR da tela decodificado e conferido) |
+| **10 códigos de recuperação** mostrados uma vez (só o hash fica no banco), cada um vale uma vez; gerar novos invalida os antigos | ✅ | idem |
+| **Login em duas etapas**: senha certa não abre sessão; desafio de uso único (5 min, 5 tentativas); o mesmo código não vale duas vezes; erros de código contam no bloqueio de força bruta do login | ✅ | idem |
+| **Equipe exige 2FA**: moderador, admin e superadmin só usam o painel e as rotas da equipe com a segunda etapa na sessão (`403 MFA_REQUIRED` com botão para ligar); token forjado com `mfa:true` não passa sem a verificação ligada na conta | ✅ | idem |
+| Desligar pede senha e código; superadmin pode desligar a de quem perdeu o celular (com motivo e auditoria) | ✅ | idem |
+| **Correção — sessão perdida ao recarregar**: se a página recarregava no meio da renovação da sessão, o cookie novo se perdia e a pessoa era deslogada. Agora o token recém-renovado (até 30 s) abre uma sessão irmã na mesma família; depois disso continua valendo a detecção de roubo | ✅ | `test/auth.test.ts`; E2E do painel passou 3 vezes seguidas (antes falhava 2 de 3) |
+
+**Testes:** 172 no servidor (15 novos), 103 no shared, 11 no cliente. E2E no navegador: verificação em duas etapas 10/10,
+painel 14/14 e economia 10/10 (os dois antigos agora ligam o 2FA da equipe). Fluxo conferido também pela pilha de produção
+(Docker, nginx), que não sobe sem `MFA_ENCRYPTION_KEY`.
+
+#### Limites honestos da parte 4
+- **Jogadores comuns podem ligar, mas não são obrigados.** Só a equipe é obrigada.
+- **Sem chaves físicas (WebAuthn/passkeys)** nem código por e-mail ou SMS: só app autenticador e códigos de recuperação.
+- **Perder a `MFA_ENCRYPTION_KEY`** obriga todos a cadastrar o app de novo (o superadmin desliga pela ficha de cada um; para o
+  próprio superadmin, pelo banco). Guarde a chave junto dos outros segredos do servidor.
+
 ### Próximas partes ⏳
-2FA para cargos administrativos · revisão final.
+Revisão final.

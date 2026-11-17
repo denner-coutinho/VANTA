@@ -76,6 +76,7 @@ describe("métricas do servidor de jogo", () => {
       PUBLIC_APP_URL: "https://jogar.exemplo.com",
       CORS_ORIGINS: "https://jogar.exemplo.com",
       SMTP_HOST: "smtp.exemplo.com",
+      MFA_ENCRYPTION_KEY: "Tn4wQ9zLr7Kc2Vx8Bp5Hm1Gd6Fs3Ja0Ye9Uo4Ii7",
     };
     expect(() => loadConfig({ ...prod, METRICS_TOKEN: "curto" })).toThrow(/METRICS_TOKEN/);
     expect(loadConfig({ ...prod, METRICS_TOKEN: "Vb7Lq2Zx9Rk4Tm1Wc8Np3Hs6" }).METRICS_TOKEN).toHaveLength(24);

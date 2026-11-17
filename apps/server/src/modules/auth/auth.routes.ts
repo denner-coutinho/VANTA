@@ -1,12 +1,21 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   forgotPasswordSchema,
+  loginMfaSchema,
   loginSchema,
+  mfaDisableSchema,
+  mfaEnableSchema,
+  mfaRegenerateSchema,
+  mfaSetupSchema,
   registerSchema,
   resetPasswordSchema,
   verifyEmailSchema,
   type AuthResponse,
+  type MfaChallengeResponse,
+  type MfaCodesResponse,
+  type MfaEnableResponse,
 } from "@vanta/shared";
+import { MFA_CHALLENGE_TTL_SEC } from "./mfa.service.js";
 import { Errors } from "../../lib/errors.js";
 import { clientMeta } from "../../lib/request.js";
 import { toPublicUser, type IssuedSession } from "./auth.service.js";
@@ -14,7 +23,7 @@ import { toPublicUser, type IssuedSession } from "./auth.service.js";
 export const REFRESH_COOKIE = "vanta_rt";
 
 export async function authRoutes(app: FastifyInstance) {
-  const { authService, config } = app;
+  const { authService, mfaService, config } = app;
   // Limites por IP para rotas sensíveis (além do bloqueio por conta do LoginThrottle).
   const strict = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
   const medium = { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } };
@@ -26,11 +35,13 @@ export async function authRoutes(app: FastifyInstance) {
     path: config.REFRESH_COOKIE_PATH,
   };
 
-  async function sendSession(reply: FastifyReply, s: IssuedSession, status = 200) {
-    const accessToken = await reply.jwtSign({ sub: s.user.id, role: s.user.role, tv: s.user.tokenVersion }, { expiresIn: config.ACCESS_TOKEN_TTL_SECONDS });
+  async function sessionBody(reply: FastifyReply, s: IssuedSession): Promise<AuthResponse> {
+    const accessToken = await reply.jwtSign({ sub: s.user.id, role: s.user.role, tv: s.user.tokenVersion, ...(s.mfa ? { mfa: true } : {}) }, { expiresIn: config.ACCESS_TOKEN_TTL_SECONDS });
     reply.setCookie(REFRESH_COOKIE, s.refreshToken, { ...cookieOpts, expires: s.refreshExpiresAt });
-    const body: AuthResponse = { accessToken, expiresIn: config.ACCESS_TOKEN_TTL_SECONDS, user: toPublicUser(s.user) };
-    return reply.status(status).send(body);
+    return { accessToken, expiresIn: config.ACCESS_TOKEN_TTL_SECONDS, user: toPublicUser(s.user) };
+  }
+  async function sendSession(reply: FastifyReply, s: IssuedSession, status = 200) {
+    return reply.status(status).send(await sessionBody(reply, s));
   }
 
   /**
@@ -48,7 +59,48 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post("/auth/login", strict, async (req, reply) => {
     const input = loginSchema.parse(req.body);
-    return sendSession(reply, await authService.login(input, clientMeta(req)));
+    const out = await authService.login(input, clientMeta(req));
+    if (out.kind === "session") return sendSession(reply, out.session);
+    const body: MfaChallengeResponse = { mfaRequired: true, mfaToken: await mfaService.createChallenge(out.user), expiresIn: MFA_CHALLENGE_TTL_SEC };
+    return reply.send(body);
+  });
+
+  /** Segunda etapa do login: código do app autenticador ou um código de recuperação. */
+  app.post("/auth/login/mfa", strict, async (req, reply) => {
+    const { mfaToken, code } = loginMfaSchema.parse(req.body);
+    const meta = clientMeta(req);
+    const user = await mfaService.completeChallenge(mfaToken, code, meta);
+    return sendSession(reply, await authService.finishLogin(user, meta, true));
+  });
+
+  // ───────── Verificação em duas etapas da própria conta ─────────
+
+  app.get("/auth/mfa", { preHandler: app.authenticate }, async (req) => mfaService.status(req.auth.userId, req.auth.role, req.auth.mfa));
+
+  app.post("/auth/mfa/setup", { ...strict, preHandler: app.authenticate }, async (req) => {
+    const { password } = mfaSetupSchema.parse(req.body);
+    return mfaService.beginSetup(req.auth.userId, password, clientMeta(req));
+  });
+
+  /** Liga a verificação, encerra as outras sessões e devolve esta já com a segunda etapa. */
+  app.post("/auth/mfa/enable", { ...strict, preHandler: app.authenticate }, async (req, reply) => {
+    const { code } = mfaEnableSchema.parse(req.body);
+    const meta = clientMeta(req);
+    const { user, recoveryCodes } = await mfaService.enable(req.auth.userId, code, meta);
+    const body: MfaEnableResponse = { ...(await sessionBody(reply, await authService.createSession(user, meta, undefined, true))), recoveryCodes };
+    return reply.send(body);
+  });
+
+  app.post("/auth/mfa/disable", { ...strict, preHandler: app.authenticate }, async (req, reply) => {
+    const { password, code } = mfaDisableSchema.parse(req.body);
+    const meta = clientMeta(req);
+    const user = await mfaService.disable(req.auth.userId, password, code, meta);
+    return sendSession(reply, await authService.createSession(user, meta));
+  });
+
+  app.post("/auth/mfa/recovery-codes", { ...strict, preHandler: app.authenticate }, async (req): Promise<MfaCodesResponse> => {
+    const { code } = mfaRegenerateSchema.parse(req.body);
+    return { recoveryCodes: await mfaService.regenerateCodes(req.auth.userId, code, clientMeta(req)) };
   });
 
   app.post("/auth/refresh", medium, async (req, reply) => {

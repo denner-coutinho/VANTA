@@ -8,6 +8,7 @@ const good = {
   PUBLIC_APP_URL: "https://jogar.exemplo.com",
   CORS_ORIGINS: "https://jogar.exemplo.com",
   SMTP_HOST: "smtp.exemplo.com",
+  MFA_ENCRYPTION_KEY: "Tn4wQ9zLr7Kc2Vx8Bp5Hm1Gd6Fs3Ja0Ye9Uo4Ii7",
 };
 
 describe("configuração de produção", () => {
@@ -32,5 +33,11 @@ describe("configuração de produção", () => {
     expect(loadConfig({ ...good, TRUST_PROXY: "false" }).TRUST_PROXY).toBe(false);
     expect(loadConfig({ ...good, TRUST_PROXY: "true" }).TRUST_PROXY).toBe(true);
     expect(loadConfig({ ...good, TRUST_PROXY: "2" }).TRUST_PROXY).toBe(2);
+  });
+
+  it("exige MFA_ENCRYPTION_KEY forte e diferente do segredo do JWT", () => {
+    expect(() => loadConfig({ ...good, MFA_ENCRYPTION_KEY: "" })).toThrow(/MFA_ENCRYPTION_KEY é obrigatória/);
+    expect(() => loadConfig({ ...good, MFA_ENCRYPTION_KEY: "b".repeat(40) })).toThrow(/MFA_ENCRYPTION_KEY é obrigatória/);
+    expect(() => loadConfig({ ...good, MFA_ENCRYPTION_KEY: good.JWT_ACCESS_SECRET })).toThrow(/diferente do JWT_ACCESS_SECRET/);
   });
 });

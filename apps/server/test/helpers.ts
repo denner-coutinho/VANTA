@@ -1,3 +1,4 @@
+import { totp, totpStep } from "../src/lib/totp.js";
 import type { FastifyInstance } from "fastify";
 import { Redis } from "ioredis";
 import { createPrismaClient, type PrismaClient } from "@vanta/db";
@@ -71,4 +72,25 @@ export function tokenFromMail(text: string): string {
   const m = text.match(/token=([A-Za-z0-9_%-]+)/);
   if (!m) throw new Error("token não encontrado no e-mail");
   return decodeURIComponent(m[1]!);
+}
+
+/**
+ * Liga a verificação em duas etapas pela API de verdade (como um app autenticador faria) e devolve o
+ * token novo, já com a segunda etapa. Usado para cargos da equipe, que só entram no painel assim.
+ */
+export async function enableMfa(ctx: TestContext, token: string, password = "SenhaForte123") {
+  const h = { authorization: `Bearer ${token}` };
+  const setup = await ctx.app.inject({ method: "POST", url: "/auth/mfa/setup", headers: h, payload: { password } });
+  if (setup.statusCode !== 200) throw new Error(`setup ${setup.statusCode} ${setup.body}`);
+  const secret = setup.json().secret as string;
+  const res = await ctx.app.inject({ method: "POST", url: "/auth/mfa/enable", headers: h, payload: { code: totp(secret) } });
+  if (res.statusCode !== 200) throw new Error(`enable ${res.statusCode} ${res.body}`);
+  const j = res.json();
+  return { token: j.accessToken as string, secret, recoveryCodes: j.recoveryCodes as string[] };
+}
+
+/** Código válido ainda não usado: libera o passo atual (o servidor recusa repetir o mesmo passo). */
+export async function freshTotp(ctx: TestContext, userId: string, secret: string) {
+  await ctx.prisma.user.update({ where: { id: userId }, data: { totpLastStep: totpStep() - 2 } });
+  return totp(secret);
 }
