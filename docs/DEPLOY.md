@@ -96,10 +96,27 @@ Com `METRICS_TOKEN` definido, a API e o servidor de jogo expõem `GET /metrics` 
 Um processo de jogo aguenta ~400 jogadores simultâneos. Detalhes, alertas sugeridos e como medir de novo:
 [`docs/LOAD_TEST.md`](LOAD_TEST.md).
 
-## 10. Limites conhecidos
+## 10. Vários servidores de jogo
 
-- **Um servidor de jogo só.** Presença, grupos, filas e salas vivem na memória do processo de jogo. Para mais de um
-  processo, esse estado precisa ir para o Redis (trabalho da próxima parte da Fase 8).
+Cada processo de jogo é um nó com nome (`GAME_NODE_ID`, letras minúsculas, números e hífen). Partidas, grupos e salas
+vivem num nó; o Redis guarda o resto (nós vivos, onde cada conta está, fila, salas) e um nó líder forma as partidas.
+Quando a partida, o grupo ou a sala de alguém está em outro nó, o servidor manda `{t:"redirect", node}` e o cliente
+reconecta em `/game?node=<nó>`; o nginx encaminha esse pedido direto ao nó (só aceita nomes `gameN`).
+
+```bash
+# dois nós (game1 + game2):
+docker compose -f docker-compose.prod.yml --env-file deploy/.env.production --profile scale up -d
+node scripts/e2e-cluster.mjs https://seu-dominio   # confere fila, redirecionamento e rota por nó
+```
+
+Para um terceiro nó, copie o serviço `game2` como `game3` com `GAME_NODE_ID: game3` e os aliases `[game, game3]`.
+O `game1` precisa estar sempre no ar. Se os nós ficarem atrás de outro balanceador (sem o nginx), defina
+`GAME_PUBLIC_URL` (`wss://...`) em cada nó para o cliente saber onde reconectar.
+
+## 11. Limites conhecidos
+
+- **Nó de jogo que cai perde suas partidas, grupos e salas** (ficam na memória do nó); os jogadores voltam ao menu.
+- **Grupo e partida em nós diferentes** podem desfazer o grupo depois dos 60 s de tolerância.
 - **Replays ficam no Postgres** (gzip, até 8 MB cada, 30 dias). Com muitas partidas, mover para armazenamento de
   objetos (S3 ou compatível).
 - **O Prisma avisa que não detectou a versão do OpenSSL** na imagem slim e usa o motor `openssl-1.1.x`; as consultas
