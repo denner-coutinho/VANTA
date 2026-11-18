@@ -30,7 +30,9 @@ export async function authRoutes(app: FastifyInstance) {
 
   const cookieOpts = {
     httpOnly: true,
-    secure: config.isProd,
+    // Em http (só o teste local com ALLOW_INSECURE_HTTP, inclusive pelo IP da rede local) um cookie
+    // Secure seria descartado pelo navegador e a sessão cairia a cada recarga.
+    secure: config.isProd && !config.ALLOW_INSECURE_HTTP,
     sameSite: "strict" as const,
     path: config.REFRESH_COOKIE_PATH,
   };

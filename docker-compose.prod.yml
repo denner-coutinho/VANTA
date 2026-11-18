@@ -8,7 +8,8 @@ x-app-env: &app-env
   JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?defina JWT_ACCESS_SECRET}
   MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?defina MFA_ENCRYPTION_KEY}
   PUBLIC_APP_URL: ${PUBLIC_APP_URL:?defina PUBLIC_APP_URL}
-  CORS_ORIGINS: ${PUBLIC_APP_URL}
+  # Instalação local de teste: o launcher acrescenta o endereço da rede local (http://192.168.x.x:porta).
+  CORS_ORIGINS: ${CORS_ORIGINS:-${PUBLIC_APP_URL}}
   REFRESH_COOKIE_PATH: /api/auth
   # Só o nginx na frente. Com outro balanceador antes dele, use 2.
   TRUST_PROXY: ${TRUST_PROXY:-1}
@@ -21,6 +22,8 @@ x-app-env: &app-env
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
   ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
+  # Só a instalação local de teste liga: a Temporada 1 nasce ativa no seed.
+  SEED_ACTIVATE_SEASON: ${SEED_ACTIVATE_SEASON:-false}
 
 services:
   postgres:

@@ -1,0 +1,140 @@
+# Instalação local de teste: confere o launcher de ponta a ponta no Linux, compila e testa o
+# instalador do Windows e, na main, publica os dois numa release do GitHub.
+# Nenhum segredo é usado: o launcher gera as senhas internas na hora, dentro do runner.
+name: Instalador
+
+on:
+  pull_request:
+    paths:
+      - "installer/**"
+      - "docker-compose.prod.yml"
+      - "Dockerfile"
+      - "scripts/e2e-local-install.mjs"
+      - ".github/workflows/installer.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Launcher Linux (sobe o jogo e joga uma partida)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Playwright (Chromium)
+        run: npm install -g playwright@1.49.1 && npx -y playwright@1.49.1 install --with-deps chromium
+      - name: Sobe pelo launcher (monta as imagens do zero)
+        run: VANTA_NO_BROWSER=1 VANTA_LAN_IP="$(hostname -I | awk '{print $1}')" installer/vanta.sh iniciar
+      - name: E2E da instalação local (cadastro, sessão em http pela rede local, ranqueado, partida 1v1)
+        run: E2E_BASE="http://localhost:$(sed -n 's/^WEB_PORT=//p' .vanta-local/vanta.env)" E2E_LAN="http://$(hostname -I | awk '{print $1}'):$(sed -n 's/^WEB_PORT=//p' .vanta-local/vanta.env)" node scripts/e2e-local-install.mjs
+      - name: Parar e subir de novo mantém as contas
+        run: |
+          installer/vanta.sh parar
+          VANTA_NO_BROWSER=1 installer/vanta.sh iniciar
+          docker compose -p vanta-local -f docker-compose.prod.yml --env-file .vanta-local/vanta.env exec -T postgres psql -U vanta -tAc 'select count(*) from "User"' | grep -qE '^[1-9]'
+      - name: Apagar dados
+        run: VANTA_YES=1 installer/vanta.sh apagar-dados && test ! -f .vanta-local/vanta.env
+      - name: Registros em caso de falha
+        if: failure()
+        run: installer/vanta.sh logs || true
+
+  windows:
+    name: Instalador Windows (compila, instala, testa e desinstala)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Arquivos com LF (o Docker monta o jogo a partir deles)
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - name: Confere a sintaxe do launcher
+        shell: powershell
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\installer\windows\vanta.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors.Count) { $errors | Format-List; exit 1 }
+          if ((Get-Content -Encoding Byte -TotalCount 3 installer\windows\vanta.ps1) -join "," -ne "239,187,191") { throw "vanta.ps1 precisa de BOM UTF-8 (acentos no Windows PowerShell 5.1)" }
+      - name: Teste do launcher (Windows PowerShell 5.1, sem Docker)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\windows\vanta.ps1 -Teste
+      - name: Código do jogo para o instalador
+        shell: pwsh
+        run: |
+          git archive --format=zip -o "$env:RUNNER_TEMP\src.zip" HEAD
+          Expand-Archive "$env:RUNNER_TEMP\src.zip" "$env:RUNNER_TEMP\src"
+      - name: Compila o instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DSrcDir=$env:RUNNER_TEMP\src" "/DAppVersion=0.1.${{ github.run_number }}" installer\windows\vanta.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-Item installer\dist\VANTA-Setup.exe | Format-List Name, Length
+      - name: Instala em silêncio, confere e desinstala
+        shell: pwsh
+        run: |
+          $p = Start-Process installer\dist\VANTA-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=desktopicon" -Wait -PassThru
+          if ($p.ExitCode) { throw "instalação saiu com $($p.ExitCode)" }
+          $app = "$env:LOCALAPPDATA\Programs\VANTA"
+          foreach ($f in "docker-compose.prod.yml", "Dockerfile", "installer\windows\vanta.ps1", "apps\server\package.json", "packages\db\prisma\schema.prisma") {
+            if (-not (Test-Path "$app\$f")) { throw "faltou $f" }
+          }
+          if (Test-Path "$app\docs\screenshots") { throw "capturas de tela não deveriam ir no instalador" }
+          if ((Get-Content -Raw "$app\docker-compose.prod.yml").Contains("`r")) { throw "arquivos com CRLF" }
+          $lnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "VANTA FRONTLINE.lnk"
+          if (-not (Test-Path $lnk)) { throw "atalho da área de trabalho não foi criado" }
+          $target = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+          if ($target.Arguments -notmatch "vanta\.ps1`" iniciar$") { throw "atalho com argumentos inesperados: $($target.Arguments)" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$app\installer\windows\vanta.ps1" -Teste
+          if ($LASTEXITCODE) { throw "teste do launcher instalado falhou" }
+          $u = Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          Start-Sleep -Seconds 5
+          if (Test-Path "$app\docker-compose.prod.yml") { throw "desinstalação não removeu os arquivos" }
+          if (Test-Path $lnk) { throw "desinstalação não removeu o atalho" }
+          Write-Host "INSTALADOR OK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VANTA-Setup
+          path: installer/dist/VANTA-Setup.exe
+          if-no-files-found: error
+
+  release:
+    name: Publica a versão de teste
+    if: github.event_name != 'pull_request'
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: VANTA-Setup, path: dist }
+      - name: Pacote para Linux e macOS
+        run: git archive --format=zip --prefix=VANTA/ -o dist/VANTA-teste-linux-mac.zip HEAD
+      - name: Cria a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="teste-v0.1.${{ github.run_number }}"
+          cat > /tmp/notes.md <<'NOTES'
+          Versão de teste do VANTA: FRONTLINE para jogar no próprio PC. Ainda não há servidor na internet.
+
+          **Windows:** baixe `VANTA-Setup.exe`, instale e abra o atalho **VANTA FRONTLINE**. Precisa do Docker Desktop (o VANTA oferece instalar). Na primeira vez o jogo leva de 5 a 15 minutos para montar.
+
+          **Linux e macOS:** baixe `VANTA-teste-linux-mac.zip`, extraia e rode `installer/vanta.sh` (precisa do Docker).
+
+          Multiplayer: outra conta numa janela anônima, ou outros PCs na mesma rede. Compras com dinheiro real ficam desligadas.
+          NOTES
+          sed -i 's/^          //' /tmp/notes.md
+          gh release create "$tag" dist/VANTA-Setup.exe dist/VANTA-teste-linux-mac.zip \
+            --target "${{ github.sha }}" --title "VANTA: FRONTLINE, versão de teste 0.1.${{ github.run_number }}" \
+            --notes-file /tmp/notes.md --latest
