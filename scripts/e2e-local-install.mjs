@@ -53,7 +53,9 @@ try {
   ok("A recarregou a página e continuou logado (cookie de sessão funciona em http)");
 
   await B.page.goto(`${BASE}/ranqueado`);
-  await B.page.waitForFunction(() => (document.querySelector('[data-testid="season-name"]')?.textContent ?? "").trim().length > 0, null, { timeout: 20000 });
+  // Seletor em vez de waitForFunction: a CSP do build de produção (script-src 'self') barra o eval
+  // que algumas versões do Playwright usam para avaliar funções na página.
+  await B.page.waitForSelector('[data-testid="season-name"]:not(:empty)', { timeout: 20000 });
   const season = await B.page.textContent('[data-testid="season-name"]');
   if (!season || !season.includes("Ignição")) throw new Error(`temporada não está ativa: "${season}"`);
   ok(`ranqueado com temporada ativa: ${season.trim()}`);
