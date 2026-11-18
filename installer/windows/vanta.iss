@@ -42,7 +42,7 @@ Name: "ptbr"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; GroupDescription: "Atalhos:"
 
 [Files]
-Source: "{#SrcDir}\*"; DestDir: "{app}"; Excludes: ".git\*,.vanta-local\*,node_modules\*,installer\dist\*,docs\screenshots\*"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#SrcDir}\*"; DestDir: "{app}"; Excludes: "\.git,\.vanta-local,node_modules,\installer\dist,\docs\screenshots"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 Name: "{group}\VANTA FRONTLINE"; Filename: "{#Ps}"; Parameters: "{#PsArgs} iniciar"; WorkingDir: "{app}"; IconFilename: "{app}\installer\windows\vanta.ico"
