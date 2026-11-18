@@ -82,6 +82,11 @@ export function MatchScreen() {
       }
       rt.current?.handleMessage(m);
     });
+    // A partida (ou o resultado) pode ter chegado entre a renderização e a inscrição acima.
+    if (gameSocket.match) setInfo((prev) => prev ?? gameSocket.match);
+    if (gameSocket.progress) setProgress((prev) => prev ?? gameSocket.progress);
+    if (gameSocket.rankedResult) setRankedRes((prev) => prev ?? gameSocket.rankedResult);
+    setStatus(gameSocket.status);
     // Sem partida conhecida: espera o servidor dizer (reconexão) ou volta.
     const t = setTimeout(() => {
       if (!gameSocket.match && gameSocket.status === "online" && !gameSocket.inMatch) navigate("/jogar", { replace: true });

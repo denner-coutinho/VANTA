@@ -3,7 +3,8 @@
 FPS multiplayer competitivo, futurista e tático, para PC (navegador e, futuramente, app desktop).
 Monetização 100% cosmética: nada que dê vantagem em combate é vendido.
 
-> **Status:** Fase 1 (fundação) concluída. Veja [`PROGRESS.md`](PROGRESS.md) para o que está pronto, testado e o que vem a seguir.
+> **Status:** as 8 fases do plano estão concluídas e testadas; o jogo ainda **não foi lançado** (pagamentos reais e deploy
+> num provedor dependem de decisões suas). Veja [`PROGRESS.md`](PROGRESS.md) para o que está pronto, como foi testado e os limites conhecidos.
 > Arquitetura e decisões técnicas: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Estrutura
@@ -11,12 +12,13 @@ Monetização 100% cosmética: nada que dê vantagem em combate é vendido.
 ```
 apps/
   client/        Cliente web (Vite + React + Three.js)
-  server/        API HTTP (Fastify) — auth, perfil, conteúdo; depois loja, pagamentos, admin
+  server/        API HTTP (Fastify, :4000) e servidor de jogo autoritativo (WebSocket, :4100)
 packages/
   shared/        Tipos, validação (zod), patentes, progressão, i18n — usado por cliente e servidor
   db/            Prisma: schema, migrations e seed
-scripts/         Teste ponta a ponta (Playwright)
-docs/            Arquitetura e capturas de tela
+scripts/         Testes ponta a ponta (Playwright) e de vários nós
+deploy/          nginx e exemplo de configuração de produção
+docs/            Arquitetura, deploy, teste de carga e capturas de tela
 ```
 
 ## Requisitos
@@ -47,6 +49,9 @@ Não existe rota HTTP para isso, de propósito. Crie a conta pelo jogo e, no ser
 pnpm --filter @vanta/server create-admin seu@email.com ADMIN   # ou SUPERADMIN / MODERATOR
 ```
 
+A equipe só usa o painel (`/admin`) com a verificação em duas etapas ligada: depois do comando, a pessoa liga em
+Perfil › Verificação em duas etapas (app autenticador) e entra de novo com o código.
+
 ## Testes
 
 ```bash
@@ -64,6 +69,9 @@ node scripts/e2e-progression.mjs      # Fase 7: partida real → XP no resultado
 node scripts/e2e-clans.mjs            # Fase 7: clã (criar, convidar, cargos, desfazer), perfil público, cartão e rankings
 node scripts/e2e-replay.mjs           # Fase 7: kill cam com abate real, MVP, replay (pausa, linha do tempo, velocidade) e download
 node scripts/e2e-admin.mjs            # Fase 7: painel administrativo (moderador, superadmin, auditoria) e teclas remapeáveis
+node scripts/e2e-mfa.mjs              # Fase 8: verificação em duas etapas (QR code, código, recuperação, exigência para a equipe)
+node scripts/e2e-cluster.mjs          # Fase 8: dois servidores de jogo pela pilha de produção (veja docs/DEPLOY.md)
+pnpm --filter @vanta/server load-test # Fase 8: carga no servidor de jogo (só em banco de carga; veja docs/LOAD_TEST.md)
 ```
 
 O teste E2E precisa do Playwright: `npm i -g playwright && npx playwright install chromium`.
@@ -72,9 +80,9 @@ Os testes de integração usam `TEST_DATABASE_URL` (banco com `_test` no nome); 
 ## Variáveis de ambiente
 
 Todas documentadas em [`.env.example`](.env.example). Regras:
-- Segredos (`JWT_ACCESS_SECRET`, `STRIPE_*`, `SMTP_PASS`) **só no servidor**.
+- Segredos (`JWT_ACCESS_SECRET`, `MFA_ENCRYPTION_KEY`, `METRICS_TOKEN`, `STRIPE_*`, `SMTP_PASS`) **só no servidor**.
 - No cliente, apenas variáveis `VITE_*` chegam ao navegador — nunca coloque segredos nelas.
-- Em produção o servidor recusa iniciar com o segredo JWT padrão ou sem SMTP.
+- Em produção o servidor recusa iniciar com segredos de exemplo ou fracos, sem `MFA_ENCRYPTION_KEY`, sem https ou sem SMTP.
 
 ## Pagamentos (Stripe)
 

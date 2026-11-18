@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { gameSocket } from "../net/GameSocket";
+import { gameSocket, type SocketStatus } from "../net/GameSocket";
 import { useNavigate } from "react-router-dom";
 import { RANKS, rankProgress, type ActiveEvent } from "@vanta/shared";
 import { useAuth } from "../auth/AuthContext";
@@ -43,6 +43,12 @@ export function MainMenu() {
   const [panel, setPanel] = useState<"profile" | "settings" | "friends" | null>(null);
   const social = useSocial();
   const [settings, setSettings] = useState<LocalSettings>(loadSettings);
+  const [conn, setConn] = useState<SocketStatus>(gameSocket.status);
+  useEffect(() => {
+    const off = gameSocket.onStatus(setConn);
+    setConn(gameSocket.status);
+    return off;
+  }, []);
 
   useEffect(() => {
     api.get<Character[]>("/content/characters").then((list) => {
@@ -237,7 +243,11 @@ export function MainMenu() {
 
       <footer className="menu-foot">
         <span className="label">{RANKS.length} patentes · 5 mapas · 10 armas · 8 operadores</span>
-        <span className="label"><span className="dot" /> Conectado</span>
+        {/* Estado real da conexão com o servidor de jogo (presença, convites, fila). */}
+        <span className="label" data-testid="conn-status" data-state={conn}>
+          <span className="dot" style={conn === "online" ? undefined : { background: conn === "offline" ? "var(--c-red)" : "var(--c-amber)", boxShadow: "none" }} />
+          {conn === "online" ? "Conectado" : conn === "offline" ? "Sem conexão com o servidor de jogo" : "Conectando…"}
+        </span>
       </footer>
 
       {panel === "profile" && <ProfilePanel onClose={() => setPanel(null)} />}

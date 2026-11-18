@@ -43,9 +43,14 @@ export function RoomLobby() {
         navigate("/partida");
       }
     });
+    // A sala pode ter chegado entre a primeira renderização e a inscrição acima (ex.: aceitar um convite
+    // manda o pedido e abre esta tela na hora): sincroniza com o que o socket já sabe.
+    setRoom(gameSocket.room);
+    setStatus(gameSocket.status);
     // Sem sala conhecida (ex.: recarregou a página): espera o servidor reenviar ou volta para a lista.
     const t = window.setTimeout(() => {
-      if (!gameSocket.room && gameSocket.status === "online") navigate("/salas", { replace: true });
+      if (gameSocket.room) setRoom(gameSocket.room);
+      else if (gameSocket.status === "online") navigate("/salas", { replace: true });
     }, 3000);
     return () => {
       off();

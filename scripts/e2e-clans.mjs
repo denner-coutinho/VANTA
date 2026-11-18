@@ -57,6 +57,8 @@ async function newPlayer(tag) {
   await page.check('input[name="acceptTerms"]');
   await page.click('button[type="submit"]');
   await page.waitForURL("**/menu", { timeout: T });
+  // Conectado ao servidor de jogo: só assim recebe convites e pedidos ao vivo.
+  await page.waitForSelector('[data-testid="conn-status"][data-state="online"]', { timeout: T });
   return { page, ctx, name: `SO_${id}` };
 }
 const shot = async (p, name) => SHOTS && p.screenshot({ path: `${SHOTS}/${name}.png` });
