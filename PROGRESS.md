@@ -2,6 +2,25 @@
 
 Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 
+## Estado em 18/11/2026: as 8 fases estão prontas e testadas, e o jogo ainda não foi lançado
+
+**O que existe:** cadastro e login (com verificação em duas etapas), treino, multiplayer autoritativo 1v1/2v2/3v3, 5 mapas,
+8 operadores animados, 10 armas, ranqueado com temporadas, loja só de cosméticos, amigos, grupos, salas, espectador,
+progressão, clãs, replays e kill cam, painel da equipe, Docker, CI, métricas e vários servidores de jogo.
+
+**Como foi testado (revisão final):**
+- 172 testes no servidor, 103 no shared e 11 no cliente.
+- Os 14 E2Es passam no navegador, com jogadores reais em vários navegadores.
+- A pilha de produção (Docker + nginx) sobe com dois servidores de jogo.
+
+**O que depende de você para lançar:**
+- **Hospedagem e domínio.** Um servidor com Docker e um domínio com https. O deploy gera custo e expõe o jogo, então só
+  acontece com a sua escolha de provedor e a sua autorização. Passo a passo em `docs/DEPLOY.md`.
+- **SMTP** para os e-mails reais (verificação e recuperação de senha).
+- **Pagamentos reais** (Stripe, nota fiscal, termos de compra, regras para menores e reembolso). Ficaram para depois, por
+  decisão sua. Até lá, a compra de VANTA COINS fica desligada, avisando na tela; nada é simulado.
+- **Textos legais** (termos de uso e política de privacidade revisados por um advogado) antes de abrir ao público.
+
 ## Fase 1 — Fundação ✅ (14/11/2026)
 
 | Item | Status | Evidência |
@@ -333,7 +352,7 @@ Legenda: ✅ pronto e testado · 🟡 parcial · ⏳ planejado
 - **O espectador e o replay usam teclas fixas** (Q/E troca, F câmera livre, WASD na câmera livre); as teclas remapeáveis valem no jogo e no treino.
 - **Sem painel de conteúdo** (criar armas, mapas ou itens da loja pela interface): isso continua no seed e nas migrações.
 
-## Fase 8 — Finalização 🔄 (em andamento)
+## Fase 8 — Finalização ✅ (18/11/2026, dividida em 5 partes)
 
 ### Parte 1 — Docker, CI e segurança ✅ (17/11/2026)
 
@@ -430,5 +449,30 @@ painel 14/14 e economia 10/10 (os dois antigos agora ligam o 2FA da equipe). Flu
 - **Perder a `MFA_ENCRYPTION_KEY`** obriga todos a cadastrar o app de novo (o superadmin desliga pela ficha de cada um; para o
   próprio superadmin, pelo banco). Guarde a chave junto dos outros segredos do servidor.
 
-### Próximas partes ⏳
-Revisão final.
+### Parte 5 — Revisão final ✅ (18/11/2026)
+
+| Item | Status | Evidência |
+|---|---|---|
+| Todos os testes e os 14 E2Es rodados do zero na versão final | ✅ | 172 + 103 + 11 testes; E2Es abaixo |
+| **Correção — sala presa em "Carregando"**: ao aceitar um convite, a resposta do servidor podia chegar entre a abertura da tela e a inscrição dela nas mensagens, e se perdia. O mesmo risco existia nas telas de partida e de espectador. Agora as três sincronizam com o que a conexão já recebeu | ✅ | Com as duas correções desta parte, o E2E de salas passou 5 de 5 rodadas seguidas (antes falhava 2 de 8) |
+| **Correção — "Conectado" fixo no menu**: o indicador sempre dizia "Conectado". Agora mostra o estado real da conexão com o servidor de jogo (conectando, conectado ou sem conexão) | ✅ | E2Es esperam esse estado antes de mandar pedidos de amizade |
+| Pacote do cliente de produção sem segredos, sem URLs internas e sem ganchos de depuração (os ganchos só existem no build de desenvolvimento) | ✅ | Varredura do pacote da imagem `web` |
+| Todas as rotas da API com autenticação ou leitura pública de conteúdo, e limites de requisição; compra usa o preço do servidor; WebSocket com origem conferida, tamanho máximo e limite de mensagens por segundo | ✅ | Revisão das rotas |
+| Regras do projeto: sem bots, sem caixas de recompensa pagas, sem vantagem à venda, sem pagamento simulado, personagens animados | ✅ | Revisão do código |
+| README e capturas de tela atualizados | ✅ | — |
+
+**E2Es da revisão final:** fumaça, treino 9/9, multiplayer 11/11, mapas 9/9, ranqueado 10/10, economia 10/10, social 11,
+salas 9, progressão 8, clãs 10, replay 15/15, painel 14/14, verificação em duas etapas 10/10, vários nós 6/6.
+
+#### Limites honestos da parte 5
+- **Dois alertas de dependência, só em ferramentas de build** (nenhum chega ao jogo em produção):
+  - `deepmerge-ts`, dentro da CLI do Prisma. A correção pede uma versão maior que o Prisma 6 fixa.
+  - `picomatch`, dentro do Vite. Ainda não existe versão corrigida.
+  A CI barra alertas críticos, e estes dois são "altos".
+- **Os E2Es com 3 ou 4 navegadores 3D dependem da máquina.** Aqui o WebGL roda por software, e numa rodada o ranqueado
+  passou do tempo de carregar uma página. Na repetição, passou. Não é falha do jogo, mas o E2E é lento nesta máquina.
+- Os limites de cada fase continuam valendo (veja as seções acima). Os principais:
+  - partidas que estavam num servidor de jogo que caiu se perdem;
+  - capacidade medida de ~400 jogadores por processo;
+  - replays guardados no Postgres;
+  - nenhum deploy real feito.

@@ -31,6 +31,8 @@ export function SpectateScreen() {
       else if (m.t === "match") navigate("/partida", { replace: true });
       rt.current?.handleMessage(m);
     });
+    // O início pode ter chegado entre a renderização e a inscrição acima.
+    if (gameSocket.spectate) setInfo((prev) => prev ?? gameSocket.spectate);
     const t = window.setTimeout(() => {
       if (!gameSocket.spectate && gameSocket.status === "online") navigate(gameSocket.room ? "/sala" : "/salas", { replace: true });
     }, 3000);
