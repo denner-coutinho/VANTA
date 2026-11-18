@@ -11,7 +11,8 @@
 
 #define Ps "{sys}\WindowsPowerShell\v1.0\powershell.exe"
 #define Script "{app}\installer\windows\vanta.ps1"
-#define PsArgs '-NoProfile -ExecutionPolicy Bypass -File "' + Script + '"'
+; Dentro de um parâmetro do Inno, aspas são escritas dobradas ("") e viram uma aspa no atalho.
+#define PsArgs '-NoProfile -ExecutionPolicy Bypass -File ""' + Script + '""'
 
 [Setup]
 AppId={{8E3A5C1D-6B7F-4E2A-9C0D-5A1B2C3D4E5F}
