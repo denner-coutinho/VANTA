@@ -1,0 +1,35 @@
+VANTA: FRONTLINE - versão de teste para Windows
+================================================
+
+O que este instalador faz
+- Copia o jogo para a sua pasta de usuário (não precisa de administrador).
+- Cria os atalhos "VANTA FRONTLINE" (área de trabalho e menu Iniciar),
+  "Parar VANTA", "VANTA - registros" e "VANTA - apagar dados".
+
+O que você precisa ter
+- Windows 10 ou 11 de 64 bits.
+- Docker Desktop. Se não tiver, o VANTA oferece instalar na primeira vez
+  (depois é preciso reiniciar o PC e abrir o Docker Desktop uma vez).
+- Cerca de 6 GB livres em disco e 8 GB de RAM.
+- Chrome ou Edge, teclado e mouse.
+
+Como funciona
+- O atalho "VANTA FRONTLINE" sobe o servidor do jogo neste PC pelo Docker e
+  abre o jogo no navegador. Na primeira vez o Docker monta o jogo: leva de
+  5 a 15 minutos e precisa de internet. Depois, sobe em segundos.
+- Crie sua conta na tela de cadastro. Os e-mails de confirmação e de senha
+  não saem do PC: aparecem em http://localhost:8025.
+- Multiplayer: abra uma janela anônima com outra conta, ou jogue com quem
+  estiver na mesma rede (Wi-Fi ou cabo) pelo endereço que a janela do VANTA
+  mostrar. Não há servidor na internet nesta versão.
+- As compras com dinheiro real ficam desligadas nesta versão.
+
+Privacidade
+- Tudo roda neste PC. As senhas internas do servidor são geradas na primeira
+  execução e ficam só aqui.
+
+Desinstalar
+- Pelo "Adicionar ou remover programas" do Windows. As contas criadas ficam
+  guardadas no Docker (e a configuração na pasta do VANTA), para que uma
+  reinstalação continue de onde parou. Para apagar tudo, use antes o atalho
+  "VANTA - apagar dados".

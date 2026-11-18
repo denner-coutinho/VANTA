@@ -53,8 +53,9 @@ async function main() {
   }
 
   // Temporada 1. Em produção ela nasce inativa e um administrador a inicia no lançamento
-  // (POST /admin/ranked/seasons/start). Fora de produção já começa ativa, para o ranqueado funcionar no dev.
-  const dev = process.env.NODE_ENV !== "production";
+  // (POST /admin/ranked/seasons/start). Fora de produção, e na instalação local de teste
+  // (SEED_ACTIVATE_SEASON=true), já começa ativa para o ranqueado funcionar.
+  const dev = process.env.NODE_ENV !== "production" || process.env.SEED_ACTIVATE_SEASON === "true";
   const startsAt = new Date();
   const endsAt = new Date(startsAt.getTime() + 90 * 24 * 3600 * 1000);
   const existing = await prisma.rankedSeason.findUnique({ where: { number: 1 } });

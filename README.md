@@ -7,6 +7,18 @@ Monetização 100% cosmética: nada que dê vantagem em combate é vendido.
 > num provedor dependem de decisões suas). Veja [`PROGRESS.md`](PROGRESS.md) para o que está pronto, como foi testado e os limites conhecidos.
 > Arquitetura e decisões técnicas: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+## Instalar a versão de teste (sem programar)
+
+Para só jogar no próprio PC, sem Node nem comandos: baixe a última versão em
+[Releases](https://github.com/denner-coutinho/VANTA/releases/latest).
+
+- **Windows:** `VANTA-Setup.exe` instala o jogo e cria o atalho **VANTA FRONTLINE**. Precisa do Docker Desktop
+  (o VANTA oferece instalar). Na primeira vez o jogo leva de 5 a 15 minutos para montar; depois sobe em segundos.
+- **Linux e macOS:** `VANTA-teste-linux-mac.zip`, depois `installer/vanta.sh` (precisa do Docker).
+
+Tudo roda no seu PC (não há servidor na internet nesta versão). Multiplayer: outra conta numa janela anônima ou
+outros PCs na mesma rede. Detalhes em [`installer/README.md`](installer/README.md).
+
 ## Estrutura
 
 ```
@@ -17,6 +29,7 @@ packages/
   shared/        Tipos, validação (zod), patentes, progressão, i18n — usado por cliente e servidor
   db/            Prisma: schema, migrations e seed
 scripts/         Testes ponta a ponta (Playwright) e de vários nós
+installer/       Instalação local de teste (launcher Linux/macOS, launcher e instalador do Windows)
 deploy/          nginx e exemplo de configuração de produção
 docs/            Arquitetura, deploy, teste de carga e capturas de tela
 ```
@@ -71,6 +84,7 @@ node scripts/e2e-replay.mjs           # Fase 7: kill cam com abate real, MVP, re
 node scripts/e2e-admin.mjs            # Fase 7: painel administrativo (moderador, superadmin, auditoria) e teclas remapeáveis
 node scripts/e2e-mfa.mjs              # Fase 8: verificação em duas etapas (QR code, código, recuperação, exigência para a equipe)
 node scripts/e2e-cluster.mjs          # Fase 8: dois servidores de jogo pela pilha de produção (veja docs/DEPLOY.md)
+node scripts/e2e-local-install.mjs    # instalação local (installer/vanta.sh): cadastro, sessão pela rede local, ranqueado, partida
 pnpm --filter @vanta/server load-test # Fase 8: carga no servidor de jogo (só em banco de carga; veja docs/LOAD_TEST.md)
 ```
 

@@ -10,3 +10,5 @@ docs/screenshots
 coverage
 playwright-report
 test-results
+.vanta-local
+installer/dist
